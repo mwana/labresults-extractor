@@ -32,7 +32,7 @@ def init_logging ():
   handler.setFormatter(formatter)
   log.addHandler(handler)
 # uncomment for logging to console, if desired
-#  log.addHandler(logging.StreamHandler())
+  log.addHandler(logging.StreamHandler())
 init_logging()
 
 def days_ago (n):
@@ -42,7 +42,7 @@ def days_ago (n):
 def dbconn (db):
   """return a database connected to the production (lab access) or staging (UNICEF sqlite) databases"""
   if db == 'prod':
-    return pyodbc.connect('DRIVER={Microsoft Access Driver (*.mdb)};DBQ=%s;PWD=pcr2010' % config.prod_db_path)
+    return pyodbc.connect(config.prod_db_dsn, **config.prod_db_opts)
 # to use the Easysoft Access ODBC driver from linux:
 #    return pyodbc.connect('DRIVER={Easysoft ODBC-ACCESS};MDBFILE=%s' % config.prod_db_path)
   elif db == 'staging':
@@ -72,7 +72,7 @@ def create_staging_db ():
       imported_on date,                   --when sample record was discovered by extract script
       resolved_on date,                   --when result was noticed by extract script
       patient_id varchar(100),            --patient 'identifier' from requisition form
-      facility_code int,
+      facility_code varchar(10),
       collected_on date,                  --date sample was collected at clinic
       received_on date,                   --date sample was received at/entered into lab system
       processed_on date,                  --date sample was tested in lab
@@ -102,12 +102,18 @@ def facilities_where_clause ():
 
 def archive_old_samples (lookback):
   """pre-populate very old samples in the prod db into staging, so they don't show up in 'new record' queries"""
+  if lookback is None:
+    log.info('skipping archive because lookback is None')
+    return
   conn = dbconn('prod')
   curs = conn.cursor()
-  sql = "select %s from tbl_Patient where DateReceived < ?" % config.prod_db_id_column
+  sql = "select %s from %s where %s < ?" % (config.prod_db_id_column,
+                                            config.prod_db_table,
+                                            config.prod_db_date_column)
   facilities = facilities_where_clause()
   if facilities:
     sql += ' AND %s' % facilities
+  log.debug(sql)
   curs.execute(sql, [days_ago(lookback).strftime('%Y-%m-%d')])
   archive_ids = set(rec[0] for rec in curs.fetchall())
   log.info('archiving %d records' % len(archive_ids))
@@ -133,20 +139,25 @@ def get_ids (db, col, table, normfunc=identity):
     # if this is the production database, add a filter to ensure that only
     # results for the proper facilities are entered into the staging database
     sql += ' WHERE %s' % facilities
+  print sql
   curs.execute(sql)
-  ids = set(normfunc(rec[0]) for rec in curs.fetchall())
+  records = curs.fetchall()
+  log.debug('got %s total records from %s db' % (len(records), db))
+  ids = set(normfunc(rec[0]) for rec in records if rec[0] is not None)
+  log.debug('got %s ids after removing duplicates and NULLs' % len(ids))
   curs.close()
   conn.close()
   return ids
 
 def check_new_records ():
   """poll if any new records have appeared in the production db (since last time it was synced to staging)"""
-  prod_ids = get_ids('prod', config.prod_db_id_column, 'tbl_Patient')
-  rsms_ids = get_ids('staging', 'sample_id', 'samples')
+  prod_ids = get_ids('prod', config.prod_db_id_column, config.prod_db_table,
+                     normfunc=unicode)
+  rsms_ids = get_ids('staging', 'sample_id', 'samples', normfunc=unicode)
   
   deleted_ids = rsms_ids - prod_ids
   new_ids = prod_ids - rsms_ids
-
+  
   if len(deleted_ids) > 0:
     log.warning('records deleted from lab database! (%s)' % ', '.join(sorted(list(deleted_ids))))
 
@@ -164,13 +175,15 @@ def query_sample (sample_id, conn=None):
     
   curs = conn.cursor()
   sql = '''
-    select %s
-    from tbl_Patient
-    where %s = ?
-''' % (', '.join(config.prod_db_columns), config.prod_db_id_column)
+select %s
+from %s
+where %s = ?
+''' % (', '.join(config.prod_db_columns), config.prod_db_table,
+       config.prod_db_id_column)
   facilities = facilities_where_clause()
   if facilities:
     sql += ' AND %s' % facilities
+#  log.debug(sql)
   curs.execute(sql, (sample_id,))
     
   results = curs.fetchall()
@@ -191,11 +204,13 @@ def read_sample_record (sample_id, conn=None):
   sample = {}
   sample['sample_id'] = sample_id
   sample['patient_id'] = sample_row[0]
-  sample['facility_code'] = sample_row[1] 
-  sample['collected_on'] = tx(sample_row[2], lambda x: x.date())
-  sample['received_on'] = tx(sample_row[3], lambda x: x.date())
-  sample['processed_on'] = tx(sample_row[4], lambda x: x.date())
-  sample['birthdate'] = tx(sample_row[9], lambda x: x.date())
+  sample['facility_code'] = sample_row[1]
+  if not sample['facility_code'] and hasattr(config, 'calc_facility_code'):
+    sample['facility_code'] = config.calc_facility_code(sample['patient_id'])
+  sample['collected_on'] = tx(sample_row[2], config.date_parse)
+  sample['received_on'] = tx(sample_row[3], config.date_parse)
+  sample['processed_on'] = tx(sample_row[4], config.date_parse)
+  sample['birthdate'] = tx(sample_row[9], config.date_parse)
   sample['child_age'] = sample_row[10]
   sample['child_age_unit'] = sample_row[11]
   sample['sex'] = tx(sample_row[12], lambda x: {1: 'm', 2: 'f'}[x])
@@ -203,10 +218,10 @@ def read_sample_record (sample_id, conn=None):
   sample['health_worker'] = sample_row[14]
   sample['health_worker_title'] = sample_row[15]
   sample['verified'] = sample_row[16]
-
-  if sample_row[5] is not None and sample_row[5] not in config.result_map:
+  
+  if sample_row[5] is not None and sample_row[5].lower() not in config.result_map:
     log.warn('No result mapping found for "%s"' % sample_row[5])
-  detected = tx(sample_row[5], lambda x: config.result_map.get(x, x))
+  detected = tx(sample_row[5], lambda x: config.result_map.get(x.lower(), x))
   # at UTH the HasSampleBeenRejected column is not set; instead, the
   # lab result itself shows a 'Sample rejected' status (mapped in config)
   rejected = tx(sample_row[6], lambda x: x == 1) or detected == 'rejected'
@@ -248,7 +263,7 @@ def read_sample_record (sample_id, conn=None):
   
   sample['result'] = result
   sample['result_detail'] = result_detail
-      
+  
   return sample  
 
 def read_staged_record (sample_id, conn=None):
@@ -316,7 +331,7 @@ def query_prod_records ():
   
   records = []
   conn = dbconn('prod')
-  for id in ids_of_interest:
+  for x, id in enumerate(ids_of_interest):
     if id in new_ids:
       source = 'new'
     elif id in update_window_ids:
@@ -327,6 +342,8 @@ def query_prod_records ():
       source = 'update-untested'
   
     records.append((source, read_sample_record(id, conn)))
+    if x % 100 == 0:
+      log.debug('  retrieved %s / %s records' % (x, len(ids_of_interest)))
   conn.close()
 
   return (records, deleted_ids)
@@ -577,6 +594,8 @@ class DBSyncTask:
     log.info('all db sync attempts failed')
   
   def hook_fail_retry (self, tries, total_tries, retry_wait):
+    import traceback
+    traceback.print_stack()
     log.info('db sync attempt %d of %d failed; trying again in %d minutes' % (tries, total_tries, retry_wait / 60))
       
   def result (self, success):
@@ -1073,5 +1092,6 @@ def daemon ():
     log.exception('top-level exception when booting daemon!')
   
 if __name__ == "__main__":
-  daemon()
-
+#  daemon()
+#  init()
+  main()
