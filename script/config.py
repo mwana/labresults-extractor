@@ -1,22 +1,21 @@
-version = '1.0.3'
+version = '1.1.0'
 
-sched = ['0930', '1310', '1645']  #scheduling parameters for sync task
+sched = ['0930', '1310', '1600']  #scheduling parameters for sync task
 
 # List of clinic ids to send data for; if present, ONLY data for these clinics 
 # will accumulate in the staging db and, subsequently, be sent to the MOH 
 # server.  If empty or None, data for all clinics will be sent.
 clinics = [
-  '4020260',
-  '4020300',
-  '4020230',
-  '4030110',
-  '4030170',
-  '4030290',
-  '4030320',
-  '4030120',
-  '4060130',
-  '4060150',
-  '4060160',
+  '8080140',
+  '8080300',
+  '8080150',
+  '8080250',
+  '8080210',
+  '8070990',
+  '8070330',
+  '8070260',
+  '8070350',
+  '8070370',
 ]
 
 #path to the Lab database                                        
@@ -24,41 +23,53 @@ import os.path
 base_path = os.path.dirname(os.path.abspath(__file__))
 
 staging_db_path = os.path.join(base_path, 'rapidsms_results.db3')
-prod_db_path = os.path.join('path', 'to', 'access_db.mdb')
+prod_db_path = 'DATABASE PATH'
 log_path = os.path.join(base_path, 'extract.log')
 
 # the name of the column containing the lab-based ID of the record
-prod_db_id_column = 'ID'
+prod_db_id_column = 'LabID'
 
 # a list of the column names to select from the lab database, in the following
 # order: sample_id, patient_id, facility_code, collected_on, received_on,
 # processed_on, result, rejected (boolean), rejection_reason,
-# reject_reason_other, birthdate, child_age, sex, mother_age, health_worker,
-# health_worker_title 
+# reject_reason_other, birthdate, child_age, child_age_unit, sex, mother_age,
+# health_worker, health_worker_title, verified
 prod_db_columns = [
   'PatientIDReference',
   'Facility',
   'CollectionDate',
   'DateReceived',
   'HivPcrDate',
-  'Detection',
+  'PcrLabResults',
   'HasSampleBeenRejected',
   'RejectionReasons',
   'RejectionReasonOther',
   'BirthDate',
   'Age',
+  'AgeUnit',
   'Sex',
   'MotherAge',
   'RequestingHealthWorker',
   'Designation',
+  'ResultsVerified',
 ]
 
+# adh:
+#result_map = {1: '+', 2: '-', 3: '?'}
+# uth:
+result_map = {
+  'Detected': '+',
+  'Not detected': '-',
+  'Invalid': '?',
+  'Sample rejected': 'rejected',
+}
+
 #production rapidsms server at MoH
-submit_url = 'http://127.0.0.1:8000/labresults/incoming/'                        #testing server on local machine
+submit_url = 'HTTPS SERVER PATH'
 
 auth_params = dict(realm='Lab Results', user='USERNAME', passwd='PASSWORD')
 
-always_on_connection = True       #if True, assume computer 'just has' internet
+always_on_connection = False       #if True, assume computer 'just has' internet
 
 result_window = 14     #number of days to listen for further changes after a definitive result has been reported
 unresolved_window = 28 #number of days to listen for further changes after a non-definitive result has been
