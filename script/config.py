@@ -1,3 +1,9 @@
+import os
+import tempfile
+import sqlite3
+import pyodbc
+import datetime
+
 version = '1.2.0b'
 
 sched = ['0930', '1310', '1600']  #scheduling parameters for sync task
@@ -12,18 +18,22 @@ import os.path
 base_path = os.path.dirname(os.path.abspath(__file__))
 
 staging_db_path = os.path.join(base_path, 'rapidsms_results.db3')
-prod_db_path = r'c:\Mwana\labdata.xls'
-# prod_dsn = 'DRIVER={Microsoft Access Driver (*.mdb)};DBQ=%s;PWD=pcr2010' % prod_db_path
-#prod_dsn = 'DRIVER={Microsoft Access Driver (*.mdb)};DBQ=%s;PWD=pcr2010' % prod_db_path
-prod_db_dsn = 'Driver={Microsoft Excel Driver (*.xls)};FIRSTROWHASNAMES=1;READONLY=1;DBQ=%s' % prod_db_path
-prod_db_opts = {'autocommit': True}
-log_path = os.path.join(base_path, 'extract2.log')
+
+prod_db_path = None # temporary path defined in __init__
+prod_db_provider = sqlite3
+prod_db_opts = {'detect_types': sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES}
+
+prod_excel_path = r'c:\Mwana\labdata.xls'
+prod_excel_dsn = 'Driver={Microsoft Excel Driver (*.xls)};FIRSTROWHASNAMES=1;READONLY=1;DBQ=%s' % prod_excel_path
+prod_excel_opts = {'autocommit': True}
+
+log_path = os.path.join(base_path, 'extract.log')
 
 # the name of the table in the production database containing the results
-prod_db_table = '[PCR LogBook$]'
+prod_db_table = 'pcr_logbook'
 # the name of the column in prod_db_table containing the lab-based ID of the record
-prod_db_id_column = '[Serial No]'
-prod_db_date_column = '[PCR report date]'
+prod_db_id_column = 'serial_no'
+prod_db_date_column = 'pcr_report_date'
 
 # a list of the column names to select from the lab database, in the following
 # order: sample_id, patient_id, facility_code, collected_on, received_on,
@@ -31,14 +41,14 @@ prod_db_date_column = '[PCR report date]'
 # reject_reason_other, birthdate, child_age, child_age_unit, sex, mother_age,
 # health_worker, health_worker_title, verified
 prod_db_columns = [
-  '[Patient  ID No   (PIN)]',
+  'patient_id',
   'NULL',
   'NULL',
   'NULL',
-  '[PCR report date]',
-  '[Result]',
+  'pcr_report_date',
+  'result',
   'NULL',
-  '[Comments]',
+  'comments',
   'NULL',
   'NULL',
   'NULL',
@@ -51,7 +61,6 @@ prod_db_columns = [
 ]
 
 #date_parse = lambda x: x.date()
-import datetime
 def date_parse(x):
     try:
         result = datetime.datetime.strptime(x, '%d-%m-%Y')
@@ -62,7 +71,8 @@ def date_parse(x):
             result = None
     return result and datetime.date(result.year, result.month, result.day)
 
-calc_facility_code = lambda patient_id: patient_id and patient_id[:4] or patient_id
+def calc_facility_code(patient_id):
+    return patient_id and patient_id[:4] or patient_id
 
 # adh:
 #result_map = {1: '+', 2: '-', 3: '?'}
@@ -121,3 +131,56 @@ source_tag = 'lilongwe/unicef-testing'
 
 daemon_lock = os.path.join(base_path, 'daemon.lock')
 task_lock = os.path.join(base_path, 'task.lock')
+
+def _sql_type(col_desc):
+    """returns the database column declaration for the given column description, e.g., for use in a create statement"""
+    name, type_code, display_size, internal_size, precision, scale, null_ok = col_desc
+    if type_code == str:
+        sql_type = 'varchar(%s)' % internal_size
+    elif type_code == float:
+        sql_type = 'float'
+    else:
+        raise NotImplementedException('SQL type for %s not known' % type_code)
+    return sql_type
+
+def bootstrap(log):
+    """creates a temporary sqlite-based production db to speed prod db queries"""
+    global prod_db_path
+    _, prod_db_path = tempfile.mkstemp()
+    excel_db = pyodbc.connect(prod_excel_dsn, **prod_excel_opts)
+    excel_curs = excel_db.cursor()
+    prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
+    prod_curs = prod_db.cursor()
+    srccols = ('[Serial No]', '[Patient  ID No   (PIN)]',
+               '[PCR report date]', '[Result]', '[Comments]')
+    destcols = ('serial_no', 'patient_id', 'pcr_report_date', 'result',
+                'comments')
+    excel_curs.execute('select %s from [PCR LogBook$]' % ','.join(srccols))
+    log.debug('moving excel spreadsheet into temp prod db')
+    columns = [' '.join([dest, _sql_type(col)])
+               for dest, col in zip(destcols, excel_curs.description)]
+    create_sql = 'CREATE TABLE "%s" (%s)' % (prod_db_table,
+                                         ','.join(columns))
+    log.debug('creating temp table with SQL: %s' % create_sql)
+    prod_curs.execute(create_sql)
+    index_sql = 'CREATE INDEX prod_id_idx ON %s (%s)' % (prod_db_table,
+                                                         prod_db_id_column)
+    prod_curs.execute(index_sql)
+    row = excel_curs.fetchone()
+    while row:
+        values = ', '.join('?'*len(row))
+        prod_curs.execute('INSERT INTO "%s" VALUES(%s)' % (prod_db_table,
+                                                           values), row)
+        row = excel_curs.fetchone()
+    prod_curs.execute('select count(*) from "%s"' % prod_db_table)
+    count = prod_curs.fetchone()[0]
+    log.debug('finished creating temp prod db; %s records inserted' % count)
+    prod_db.commit()
+    prod_curs.close()
+    excel_curs.close()
+
+def teardown(log):
+    log.debug('removing temp prod db at %s' % prod_db_path)
+    if prod_db_path and os.path.exists(prod_db_path):
+        os.remove(prod_db_path)
+

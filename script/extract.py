@@ -42,7 +42,7 @@ def days_ago (n):
 def dbconn (db):
   """return a database connected to the production (lab access) or staging (UNICEF sqlite) databases"""
   if db == 'prod':
-    return pyodbc.connect(config.prod_db_dsn, **config.prod_db_opts)
+    return config.prod_db_provider.connect(config.prod_db_path, **config.prod_db_opts)
 # to use the Easysoft Access ODBC driver from linux:
 #    return pyodbc.connect('DRIVER={Easysoft ODBC-ACCESS};MDBFILE=%s' % config.prod_db_path)
   elif db == 'staging':
@@ -57,8 +57,11 @@ def pkey_fetch (curs, query, args=()):
     
 def init_staging_db (lookback):
   """initialize the staging database"""
-  create_staging_db()
-  archive_old_samples(lookback)
+  create_staging_db(dbconn('staging'))
+  if lookback is not None:
+    archive_old_samples(lookback)
+  else:
+    log.info('skipping archive because lookback is None')
   log.info('staging db initialized')
     
 def create_staging_db ():
@@ -102,9 +105,6 @@ def facilities_where_clause ():
 
 def archive_old_samples (lookback):
   """pre-populate very old samples in the prod db into staging, so they don't show up in 'new record' queries"""
-  if lookback is None:
-    log.info('skipping archive because lookback is None')
-    return
   conn = dbconn('prod')
   curs = conn.cursor()
   sql = "select %s from %s where %s < ?" % (config.prod_db_id_column,
@@ -1092,6 +1092,12 @@ def daemon ():
     log.exception('top-level exception when booting daemon!')
   
 if __name__ == "__main__":
-#  daemon()
-#  init()
-  main()
+  try:
+    config.bootstrap(log)
+  #  daemon()
+    init()
+    main()
+    config.teardown(log)
+  except:
+    log.exception("uncaught exception in __main__")
+
