@@ -113,7 +113,6 @@ def archive_old_samples (lookback):
   facilities = facilities_where_clause()
   if facilities:
     sql += ' AND %s' % facilities
-  log.debug(sql)
   curs.execute(sql, [days_ago(lookback).strftime('%Y-%m-%d')])
   archive_ids = set(rec[0] for rec in curs.fetchall())
   log.info('archiving %d records' % len(archive_ids))
@@ -139,7 +138,6 @@ def get_ids (db, col, table, normfunc=identity):
     # if this is the production database, add a filter to ensure that only
     # results for the proper facilities are entered into the staging database
     sql += ' WHERE %s' % facilities
-  print sql
   curs.execute(sql)
   records = curs.fetchall()
   log.debug('got %s total records from %s db' % (len(records), db))
@@ -157,7 +155,7 @@ def check_new_records ():
   
   deleted_ids = rsms_ids - prod_ids
   new_ids = prod_ids - rsms_ids
-  
+
   if len(deleted_ids) > 0:
     log.warning('records deleted from lab database! (%s)' % ', '.join(sorted(list(deleted_ids))))
 
@@ -183,7 +181,6 @@ where %s = ?
   facilities = facilities_where_clause()
   if facilities:
     sql += ' AND %s' % facilities
-#  log.debug(sql)
   curs.execute(sql, (sample_id,))
     
   results = curs.fetchall()
@@ -594,8 +591,6 @@ class DBSyncTask:
     log.info('all db sync attempts failed')
   
   def hook_fail_retry (self, tries, total_tries, retry_wait):
-    import traceback
-    traceback.print_stack()
     log.info('db sync attempt %d of %d failed; trying again in %d minutes' % (tries, total_tries, retry_wait / 60))
       
   def result (self, success):
@@ -1093,11 +1088,13 @@ def daemon ():
   
 if __name__ == "__main__":
   try:
-    config.bootstrap(log)
+    if hasattr(config, 'bootstrap'):
+      config.bootstrap(log)
   #  daemon()
     init()
     main()
-    config.teardown(log)
+    if hasattr(config, 'teardown'):
+      config.teardown(log)
   except:
     log.exception("uncaught exception in __main__")
 

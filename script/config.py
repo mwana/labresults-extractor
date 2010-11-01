@@ -23,7 +23,7 @@ prod_db_path = None # temporary path defined in __init__
 prod_db_provider = sqlite3
 prod_db_opts = {'detect_types': sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES}
 
-prod_excel_path = r'c:\Mwana\labdata.xls'
+prod_excel_path = r'DATABASE PATH'
 prod_excel_dsn = 'Driver={Microsoft Excel Driver (*.xls)};FIRSTROWHASNAMES=1;READONLY=1;DBQ=%s' % prod_excel_path
 prod_excel_opts = {'autocommit': True}
 
@@ -94,9 +94,9 @@ result_map = {
 }
 
 #production rapidsms server at MoH
-submit_url = ''
+submit_url = 'HTTPS SERVER PATH'
 
-auth_params = dict(realm='Lab Results', user='', passwd='')
+auth_params = dict(realm='Lab Results', user='USERNAME', passwd='PASSWORD')
 
 always_on_connection = True       #if True, assume computer 'just has' internet
 
