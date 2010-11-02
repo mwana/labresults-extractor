@@ -42,7 +42,7 @@ prod_db_date_column = 'pcr_report_date'
 # health_worker, health_worker_title, verified
 prod_db_columns = [
   'patient_id',
-  'NULL',
+  'fac_id',
   'NULL',
   'NULL',
   'pcr_report_date',
@@ -61,18 +61,8 @@ prod_db_columns = [
 ]
 
 #date_parse = lambda x: x.date()
-def date_parse(x):
-    try:
-        result = datetime.datetime.strptime(x, '%d-%m-%Y')
-    except ValueError:
-        try:
-            result = datetime.datetime.strptime(x, '%d/%m/%Y')
-        except ValueError:
-            result = None
-    return result and datetime.date(result.year, result.month, result.day)
-
-def calc_facility_code(patient_id):
-    return patient_id and patient_id[:4] or patient_id
+# sqlite gives the date to us as a datetime.date()
+date_parse = lambda x: x
 
 # adh:
 #result_map = {1: '+', 2: '-', 3: '?'}
@@ -105,10 +95,7 @@ unresolved_window = 28 #number of days to listen for further changes after a non
                        #reported (indeterminate, inconsistent)
 testing_window = 90    #number of days after a requisition forms has been entered into the system to wait for a
                        #result to be reported
-
-# *WARNING* unlikely to be supported on Excel because it doesn't know what date
-# format (if any) the lab is using and returns the wrong results
-init_lookback = None     #when initializing the system, how many days back from the date of initialization to report
+init_lookback = 30     #when initializing the system, how many days back from the date of initialization to report
                        #results for (everything before that is 'archived').  if None, no archiving is done.
                       
                       
@@ -132,7 +119,11 @@ source_tag = 'lilongwe/unicef-testing'
 daemon_lock = os.path.join(base_path, 'daemon.lock')
 task_lock = os.path.join(base_path, 'task.lock')
 
-def _sql_type(col_desc):
+localconfig = 'local_config.py'
+if os.path.exists(localconfig):
+    execfile(localconfig)
+
+def _sql_type(log, col_desc):
     """returns the database column declaration for the given column description, e.g., for use in a create statement"""
     name, type_code, display_size, internal_size, precision, scale, null_ok = col_desc
     if type_code == str:
@@ -140,38 +131,82 @@ def _sql_type(col_desc):
     elif type_code == float:
         sql_type = 'float'
     else:
-        raise NotImplementedException('SQL type for %s not known' % type_code)
+        log.warning('SQL type for %s unknown; using varchar(255)' % type_code)
+        sql_type = 'varchar(255)'
     return sql_type
+
+def _date_parse(log, date_str):
+    """attempts to parse a date from the Excel file, possibly in some random format"""
+    date_str = date_str.replace('/', '-')
+    date_str = date_str.replace(' ', '-')
+    try:
+        result = datetime.datetime.strptime(date_str, '%d-%m-%Y')
+    except ValueError:
+        log.warning('failed to parse date %s' % date_str)
+        result = None
+    return result and datetime.date(result.year, result.month, result.day)
+
+def _fac_id(log, patient_id):
+    try:
+        fac_id = int(patient_id and patient_id[:4] or None)
+    except (ValueError, TypeError):
+        log.warning('failed to parse fac_id from patient_id %s' % patient_id)
+        fac_id = None
+    return fac_id
 
 def bootstrap(log):
     """creates a temporary sqlite-based production db to speed prod db queries"""
+    log.debug('moving excel spreadsheet into temp prod db')
     global prod_db_path
     _, prod_db_path = tempfile.mkstemp()
     excel_db = pyodbc.connect(prod_excel_dsn, **prod_excel_opts)
     excel_curs = excel_db.cursor()
     prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     prod_curs = prod_db.cursor()
-    srccols = ('[Serial No]', '[Patient  ID No   (PIN)]',
-               '[PCR report date]', '[Result]', '[Comments]')
-    destcols = ('serial_no', 'patient_id', 'pcr_report_date', 'result',
-                'comments')
+    srccols = ('[Serial No]', '[Patient  ID No   (PIN)]', '[QECH LAB ID]',
+               '[PCR Plate No]', '[PCR report date]', '[Result]',
+               '[PIN appearance]', '[QECH ID appearance]', '[Comments]')
     excel_curs.execute('select %s from [PCR LogBook$]' % ','.join(srccols))
-    log.debug('moving excel spreadsheet into temp prod db')
-    columns = [' '.join([dest, _sql_type(col)])
-               for dest, col in zip(destcols, excel_curs.description)]
-    create_sql = 'CREATE TABLE "%s" (%s)' % (prod_db_table,
-                                         ','.join(columns))
+    destcols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
+                'pcr_plate_no', 'pcr_report_date', 'result', 'pin_appearance',
+                'qech_id_appearance', 'comments')
+    desttypes = [_sql_type(log, col) for col in excel_curs.description]
+    fac_id_index = destcols.index('fac_id')
+    date_column_indexes = [destcols.index(col)
+                           for col in ['pcr_plate_no', 'pcr_report_date']]
+    # fac_id is not in srccols (we calculate it below), so add the type for
+    # the CREATE TABLE statement here
+    desttypes.insert(fac_id_index, 'integer')
+    # the columns in Excel are not date columns, so correct the types here.
+    # this has no effect in sqlite3, but is kept in case another db is used
+    for idx in date_column_indexes:
+        desttypes[idx] = 'date'
+    columns = [' '.join([nm, tp]) for nm, tp in zip(destcols, desttypes)]
+    create_sql = 'CREATE TABLE "%s" (%s);' % (prod_db_table, ','.join(columns))
     log.debug('creating temp table with SQL: %s' % create_sql)
     prod_curs.execute(create_sql)
-    index_sql = 'CREATE INDEX prod_id_idx ON %s (%s)' % (prod_db_table,
-                                                         prod_db_id_column)
-    prod_curs.execute(index_sql)
+    # '?' placeholders for INSERT statement
+    values = ', '.join('?'*len(columns))
     row = excel_curs.fetchone()
     while row:
-        values = ', '.join('?'*len(row))
-        prod_curs.execute('INSERT INTO "%s" VALUES(%s)' % (prod_db_table,
-                                                           values), row)
+        row = [isinstance(v, basestring) and v.strip() or v for v in row]
+        patient_id = row[1]
+        fac_id = patient_id and _fac_id(log, patient_id) or None
+        if any(row) and not fac_id:
+            log.debug('skipping row (%s) with bad fac_id' % row)
+            row = excel_curs.fetchone()
+            continue
+        row.insert(fac_id_index, fac_id) # add fac_id
+        # make date columns to something sqlite can understand
+        for idx in date_column_indexes:
+            if row[idx]:
+                row[idx] = _date_parse(log, row[idx])
+        insert_sql = 'INSERT INTO "%s" VALUES(%s);' % (prod_db_table, values)
+        prod_curs.execute(insert_sql, row)
         row = excel_curs.fetchone()
+    index_sql = 'CREATE INDEX prod_id_idx ON %s (%s);' % (prod_db_table,
+                                                          prod_db_id_column)
+    prod_curs.execute(index_sql)
     prod_curs.execute('select count(*) from "%s"' % prod_db_table)
     count = prod_curs.fetchone()[0]
     log.debug('finished creating temp prod db; %s records inserted' % count)

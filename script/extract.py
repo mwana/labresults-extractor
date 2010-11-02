@@ -57,7 +57,7 @@ def pkey_fetch (curs, query, args=()):
     
 def init_staging_db (lookback):
   """initialize the staging database"""
-  create_staging_db(dbconn('staging'))
+  create_staging_db()
   if lookback is not None:
     archive_old_samples(lookback)
   else:
@@ -202,8 +202,6 @@ def read_sample_record (sample_id, conn=None):
   sample['sample_id'] = sample_id
   sample['patient_id'] = sample_row[0]
   sample['facility_code'] = sample_row[1]
-  if not sample['facility_code'] and hasattr(config, 'calc_facility_code'):
-    sample['facility_code'] = config.calc_facility_code(sample['patient_id'])
   sample['collected_on'] = tx(sample_row[2], config.date_parse)
   sample['received_on'] = tx(sample_row[3], config.date_parse)
   sample['processed_on'] = tx(sample_row[4], config.date_parse)
