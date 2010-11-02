@@ -148,7 +148,7 @@ def _date_parse(log, date_str):
 
 def _fac_id(log, patient_id):
     try:
-        fac_id = int(patient_id and patient_id[:4] or None)
+        fac_id = int(patient_id and patient_id.split('-')[0] or None)
     except (ValueError, TypeError):
         log.warning('failed to parse fac_id from patient_id %s' % patient_id)
         fac_id = None

@@ -75,7 +75,7 @@ def create_staging_db ():
       imported_on date,                   --when sample record was discovered by extract script
       resolved_on date,                   --when result was noticed by extract script
       patient_id varchar(100),            --patient 'identifier' from requisition form
-      facility_code varchar(10),
+      facility_code int,
       collected_on date,                  --date sample was collected at clinic
       received_on date,                   --date sample was received at/entered into lab system
       processed_on date,                  --date sample was tested in lab
