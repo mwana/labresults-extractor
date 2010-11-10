@@ -75,7 +75,7 @@ def create_staging_db ():
       imported_on date,                   --when sample record was discovered by extract script
       resolved_on date,                   --when result was noticed by extract script
       patient_id varchar(100),            --patient 'identifier' from requisition form
-      facility_code int,
+      facility_code varchar(10),
       collected_on date,                  --date sample was collected at clinic
       received_on date,                   --date sample was received at/entered into lab system
       processed_on date,                  --date sample was tested in lab
@@ -853,8 +853,10 @@ class SendAllTask:
     return None
     
 def run_rasdial (args):
+  log.debug('running rasdial ' + args)
   output = os.popen('rasdial ' + args).read()
   output = ' // '.join(output.strip().split('\n'))
+  log.debug('rasdial output: %s' % output)
   if output.find('Command completed successfully') == -1:
     log.warning('enabling/disabling network may have failed: ' + output)
     

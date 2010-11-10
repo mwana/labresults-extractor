@@ -95,7 +95,7 @@ unresolved_window = 28 #number of days to listen for further changes after a non
                        #reported (indeterminate, inconsistent)
 testing_window = 90    #number of days after a requisition forms has been entered into the system to wait for a
                        #result to be reported
-init_lookback = 30     #when initializing the system, how many days back from the date of initialization to report
+init_lookback = None   #when initializing the system, how many days back from the date of initialization to report
                        #results for (everything before that is 'archived').  if None, no archiving is done.
                       
                       
@@ -113,7 +113,7 @@ db_access_retries = []
 send_retries = []
 
 #source_tag Just a tag for identification
-source_tag = 'lilongwe/unicef-testing'
+source_tag = 'blantyre/queens'
 
 
 daemon_lock = os.path.join(base_path, 'daemon.lock')
@@ -147,9 +147,9 @@ def _date_parse(log, date_str):
     return result and datetime.date(result.year, result.month, result.day)
 
 def _fac_id(log, patient_id):
-    try:
-        fac_id = int(patient_id and patient_id.split('-')[0] or None)
-    except (ValueError, TypeError):
+    if patient_id and '-' in patient_id:
+        fac_id = patient_id.split('-')[0]
+    else:
         log.warning('failed to parse fac_id from patient_id %s' % patient_id)
         fac_id = None
     return fac_id
@@ -176,7 +176,7 @@ def bootstrap(log):
                            for col in ['pcr_plate_no', 'pcr_report_date']]
     # fac_id is not in srccols (we calculate it below), so add the type for
     # the CREATE TABLE statement here
-    desttypes.insert(fac_id_index, 'integer')
+    desttypes.insert(fac_id_index, 'varchar(10)')
     # the columns in Excel are not date columns, so correct the types here.
     # this has no effect in sqlite3, but is kept in case another db is used
     for idx in date_column_indexes:
