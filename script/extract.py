@@ -337,8 +337,8 @@ def query_prod_records ():
       source = 'update-untested'
   
     records.append((source, read_sample_record(id, conn)))
-    if x % 100 == 0:
-      log.debug('  retrieved %s / %s records' % (x, len(ids_of_interest)))
+    #if x % 1000 == 0:
+    #  log.debug('  retrieved %s / %s records' % (x, len(ids_of_interest)))
   conn.close()
 
   return (records, deleted_ids)
@@ -905,6 +905,9 @@ def main ():
   """ENTRY POINT: run the extract/sync task"""
   log.info('beginning extract/sync task')
 
+  if hasattr(config, 'bootstrap'):
+     config.bootstrap(log)
+
   try:
     sync_databases()
     send_data()
@@ -912,6 +915,9 @@ def main ():
     log.exception('unexpected top-level exception in sync task')
     raise
     
+  if hasattr(config, 'teardown'):
+    config.teardown(log)
+
   log.info('extract/sync task complete')
   
 
@@ -1088,13 +1094,8 @@ def daemon ():
   
 if __name__ == "__main__":
   try:
-    if hasattr(config, 'bootstrap'):
-      config.bootstrap(log)
-  #  daemon()
-    init()
-    main()
-    if hasattr(config, 'teardown'):
-      config.teardown(log)
+    daemon()
+  #  init()
+  #  main()
   except:
     log.exception("uncaught exception in __main__")
-

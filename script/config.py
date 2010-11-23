@@ -6,7 +6,7 @@ import datetime
 
 version = '1.2.0b'
 
-sched = ['0930', '1310', '1600']  #scheduling parameters for sync task
+sched = ['0930', '1310', '1630', '1730']  #scheduling parameters for sync task
 
 # List of clinic ids to send data for; if present, ONLY data for these clinics 
 # will accumulate in the staging db and, subsequently, be sent to the MOH 
@@ -23,7 +23,7 @@ prod_db_path = None # temporary path defined in __init__
 prod_db_provider = sqlite3
 prod_db_opts = {'detect_types': sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES}
 
-prod_excel_path = r'DATABASE PATH'
+prod_excel_path = r'c:\DNA Masterfile\DNA-Masterbase file.xls'
 prod_excel_dsn = 'Driver={Microsoft Excel Driver (*.xls)};FIRSTROWHASNAMES=1;READONLY=1;DBQ=%s' % prod_excel_path
 prod_excel_opts = {'autocommit': True}
 
@@ -57,7 +57,7 @@ prod_db_columns = [
   'NULL',
   'NULL',
   'NULL',
-  'NULL',
+  '0', # default to 'false' for verified so that results are not sent out
 ]
 
 #date_parse = lambda x: x.date()
@@ -77,16 +77,18 @@ date_parse = lambda x: x
 result_map = {
   'positive': '+',
   'neg': '-',
-  'invalid': '?',
-  'idn': 'rejected',
-  'ind': 'rejected',
+  'invalid': '', # usually means there was no sample, so there's no result
+  ' ': '', # empty sample
+  'idn': '?', # always retested, should never be verified as-is
+  'ind': '?', # always retested, should never be verified as-is
 #  'Sample rejected': 'rejected',
 }
 
 #production rapidsms server at MoH
-submit_url = 'HTTPS SERVER PATH'
+submit_url = 'https://malawi-qa.projectmwana.org/labresults/incoming/'
 
-auth_params = dict(realm='Lab Results', user='USERNAME', passwd='PASSWORD')
+# set these in local_config.py
+auth_params = dict(realm='Lab Results', user='', passwd='')
 
 always_on_connection = True       #if True, assume computer 'just has' internet
 
@@ -105,12 +107,10 @@ compression_factor = .2 #estimated compression factor
 
 
 #wait times if exception during db access (minutes)
-#db_access_retries = [2, 3, 5, 5, 10]
-db_access_retries = []
+db_access_retries = [2, 3, 5, 5, 10]
 
 #wait times if error during http send (seconds)
-#send_retries = [0, 0, 0, 30, 30, 30, 60, 120, 300, 300]
-send_retries = []
+send_retries = [0, 0, 0, 30, 30, 30, 60, 120, 300, 300]
 
 #source_tag Just a tag for identification
 source_tag = 'blantyre/queens'
@@ -193,7 +193,7 @@ def bootstrap(log):
         patient_id = row[1]
         fac_id = patient_id and _fac_id(log, patient_id) or None
         if any(row) and not fac_id:
-            log.debug('skipping row (%s) with bad fac_id' % row)
+            #log.debug('skipping row (%s) with bad fac_id' % row)
             row = excel_curs.fetchone()
             continue
         row.insert(fac_id_index, fac_id) # add fac_id
