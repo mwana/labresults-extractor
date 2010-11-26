@@ -23,7 +23,7 @@ prod_db_path = None # temporary path defined in __init__
 prod_db_provider = sqlite3
 prod_db_opts = {'detect_types': sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES}
 
-prod_excel_path = r'c:\DNA Masterfile\DNA-Masterbase file.xls'
+prod_excel_path = r'C:\EID Masterfile\DNA-Masterbase file.xls'
 prod_excel_dsn = 'Driver={Microsoft Excel Driver (*.xls)};FIRSTROWHASNAMES=1;READONLY=1;DBQ=%s' % prod_excel_path
 prod_excel_opts = {'autocommit': True}
 
@@ -57,7 +57,7 @@ prod_db_columns = [
   'NULL',
   'NULL',
   'NULL',
-  '0', # default to 'false' for verified so that results are not sent out
+  'verified',
 ]
 
 #date_parse = lambda x: x.date()
@@ -92,10 +92,10 @@ auth_params = dict(realm='Lab Results', user='', passwd='')
 
 always_on_connection = True       #if True, assume computer 'just has' internet
 
-result_window = 14     #number of days to listen for further changes after a definitive result has been reported
-unresolved_window = 28 #number of days to listen for further changes after a non-definitive result has been
+result_window = 365    #number of days to listen for further changes after a definitive result has been reported
+unresolved_window = 365#number of days to listen for further changes after a non-definitive result has been
                        #reported (indeterminate, inconsistent)
-testing_window = 90    #number of days after a requisition forms has been entered into the system to wait for a
+testing_window = 365   #number of days after a requisition forms has been entered into the system to wait for a
                        #result to be reported
 init_lookback = None   #when initializing the system, how many days back from the date of initialization to report
                        #results for (everything before that is 'archived').  if None, no archiving is done.
@@ -165,15 +165,20 @@ def bootstrap(log):
     prod_curs = prod_db.cursor()
     srccols = ('[Serial No]', '[Patient  ID No   (PIN)]', '[QECH LAB ID]',
                '[PCR Plate No]', '[PCR report date]', '[Result]',
-               '[PIN appearance]', '[QECH ID appearance]', '[Comments]')
+               '[PIN appearance]', '[QECH ID appearance]', '[Comments]', '[Verified to send]')
     excel_curs.execute('select %s from [PCR LogBook$]' % ','.join(srccols))
     destcols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
                 'pcr_plate_no', 'pcr_report_date', 'result', 'pin_appearance',
-                'qech_id_appearance', 'comments')
+                'qech_id_appearance', 'comments', 'verified')
     desttypes = [_sql_type(log, col) for col in excel_curs.description]
     fac_id_index = destcols.index('fac_id')
+    src_id_index = srccols.index('[Patient  ID No   (PIN)]')
+    src_verified_index = srccols.index('[Verified to send]')
     date_column_indexes = [destcols.index(col)
                            for col in ['pcr_plate_no', 'pcr_report_date']]
+    # the verified column contains strings in Excel; convert it to an integer
+    # column (boolean) here
+    desttypes[src_verified_index] = 'integer'
     # fac_id is not in srccols (we calculate it below), so add the type for
     # the CREATE TABLE statement here
     desttypes.insert(fac_id_index, 'varchar(10)')
@@ -190,7 +195,10 @@ def bootstrap(log):
     row = excel_curs.fetchone()
     while row:
         row = [isinstance(v, basestring) and v.strip() or v for v in row]
-        patient_id = row[1]
+        patient_id = row[src_id_index]
+        verified = row[src_verified_index]
+        row[src_verified_index] =\
+          int(verified and verified.lower().strip() == 'yes' or 0)
         fac_id = patient_id and _fac_id(log, patient_id) or None
         if any(row) and not fac_id:
             #log.debug('skipping row (%s) with bad fac_id' % row)
