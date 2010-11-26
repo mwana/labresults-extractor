@@ -6,7 +6,7 @@ import datetime
 
 version = '1.2.0b'
 
-sched = ['0930', '1310', '1630', '1730']  #scheduling parameters for sync task
+sched = ['0930', '1310', '1400', '1630', '1730']  #scheduling parameters for sync task
 
 # List of clinic ids to send data for; if present, ONLY data for these clinics 
 # will accumulate in the staging db and, subsequently, be sent to the MOH 
@@ -119,7 +119,8 @@ source_tag = 'blantyre/queens'
 daemon_lock = os.path.join(base_path, 'daemon.lock')
 task_lock = os.path.join(base_path, 'task.lock')
 
-localconfig = 'local_config.py'
+script_dir = os.path.abspath(os.path.dirname(__file__))
+localconfig = os.path.join(script_dir, 'local_config.py')
 if os.path.exists(localconfig):
     execfile(localconfig)
 
@@ -198,7 +199,7 @@ def bootstrap(log):
         patient_id = row[src_id_index]
         verified = row[src_verified_index]
         row[src_verified_index] =\
-          int(verified and verified.lower().strip() == 'yes' or 0)
+          int(verified and verified.lower().strip() in ('y', 'yes', 'yse') or 0)
         fac_id = patient_id and _fac_id(log, patient_id) or None
         if any(row) and not fac_id:
             #log.debug('skipping row (%s) with bad fac_id' % row)
