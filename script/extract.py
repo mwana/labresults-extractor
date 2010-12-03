@@ -905,18 +905,16 @@ def main ():
   """ENTRY POINT: run the extract/sync task"""
   log.info('beginning extract/sync task')
 
-  if hasattr(config, 'bootstrap'):
-     config.bootstrap(log)
-
   try:
+    if hasattr(config, 'bootstrap'):
+      config.bootstrap(log)
     sync_databases()
     send_data()
+    if hasattr(config, 'teardown'):
+      config.teardown(log)
   except:
     log.exception('unexpected top-level exception in sync task')
     raise
-    
-  if hasattr(config, 'teardown'):
-    config.teardown(log)
 
   log.info('extract/sync task complete')
   
@@ -1099,3 +1097,4 @@ if __name__ == "__main__":
   #  main()
   except:
     log.exception("uncaught exception in __main__")
+    raise
