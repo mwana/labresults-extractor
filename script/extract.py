@@ -197,7 +197,7 @@ where %s = ?
 def read_sample_record (sample_id, conn=None):
   """read and process/clean up a single sample row for the lab db"""
   sample_row = query_sample(sample_id, conn)
-  #log.debug('sample_row: %s' % sample_row)
+  #log.debug('sample_row: %s' % str(sample_row))
   sample = {}
   sample['sample_id'] = sample_id
   sample['patient_id'] = sample_row[0]

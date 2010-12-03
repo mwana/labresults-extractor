@@ -1,0 +1,20 @@
+1. Install dependencies
+ * Python 2.6 - "http://www.python.org/download/releases/2.6.6/":http://www.python.org/download/releases/2.6.6/
+ * pyodbc for Python 2.6 - "http://code.google.com/p/pyodbc/":http://code.google.com/p/pyodbc/
+
+2. Copy and customize extract.py + config.py from mwana/apps/labresults
+ * Install the script to C:\unicef-mwana\script\extract.py
+ * verify & update the column names for the production DB as necessary
+ * verify the detection codes (e.g., Detected, Not Detected, Sample Rejected, Invalid)
+ * verify reject codes, if applicable (e.g., Technical Problems, Labeled Improperly, etc.)
+ * verify that each field is being transferred properly
+
+3. Setup & verify internet connection via GPRS modem
+ * If using a Multi-Tech modem, see "Using The Multi-tech Modem With Windows":http://docs.rapidsms.org/Using%20The%20Multi-tech%20Modem%20With%20Windows
+ * For connecting to the internet via the command line (rasdial.exe), see "Using Dialers With The Multi-tech":http://docs.rapidsms.org/Using%20Dialers%20With%20The%20Multi-tech
+ * verify that the internet connection can be started if it off.
+
+4. Install script as a service using service.reg (what's the command?)
+ * verify that the service starts and is set to start automatically.
+ * verify that the service starts following a reboot.
+ * install srvany.exe if it is not already installed on the machine, place this file in the C:\Windows\system32\ folder.
