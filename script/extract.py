@@ -904,20 +904,23 @@ def init ():
 def main ():
   """ENTRY POINT: run the extract/sync task"""
   log.info('beginning extract/sync task')
-
   try:
     if hasattr(config, 'bootstrap'):
       config.bootstrap(log)
+  except:
+    log.exception('caught exception in config.bootstrap; continuing anyways')
+  try:
     sync_databases()
     send_data()
-    if hasattr(config, 'teardown'):
-      config.teardown(log)
   except:
     log.exception('unexpected top-level exception in sync task')
     raise
-
+  try:
+    if hasattr(config, 'teardown'):
+      config.teardown(log)
+  except:
+    log.exception('caught exception in config.teardown; continuing anyways')
   log.info('extract/sync task complete')
-  
 
   
 class SingletonTask:
