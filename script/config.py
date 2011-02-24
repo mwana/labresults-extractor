@@ -156,6 +156,7 @@ def _fac_id(log, patient_id):
     return fac_id
 
 def _debug_excel_file(log):
+    """logs miscellaneous debugging information to help assess problems with the excel file"""
     log.debug('debugging prod_excel_path:')
     log.debug('path: %s' % prod_excel_path)
     file_exists = os.path.exists(prod_excel_path)
