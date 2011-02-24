@@ -155,8 +155,24 @@ def _fac_id(log, patient_id):
         fac_id = None
     return fac_id
 
+def _debug_excel_file(log):
+    log.debug('debugging prod_excel_path:')
+    log.debug('path: %s' % prod_excel_path)
+    file_exists = os.path.exists(prod_excel_path)
+    log.debug('exists: %s' % file_exists)
+    if file_exists:
+        log.debug('size: %s' % os.path.getsize(prod_excel_path))
+        log.debug('mtime: %s' % os.path.getmtime(prod_excel_path))
+    dir_path = os.path.dirname(prod_excel_path)
+    log.debug('dir_path: %s' % dir_path)
+    dir_exists = os.path.exists(dir_path)
+    log.debug('dir_exists: %s' % dir_exists)
+    if dir_exists:
+        log.debug('listdir: %s' % os.listdir(dir_path))
+
 def bootstrap(log):
     """creates a temporary sqlite-based production db to speed prod db queries"""
+    _debug_excel_file(log)
     log.debug('moving excel spreadsheet into temp prod db')
     global prod_db_path
     _, prod_db_path = tempfile.mkstemp()
