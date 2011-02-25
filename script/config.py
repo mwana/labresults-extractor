@@ -6,7 +6,7 @@ import datetime
 
 version = '1.2.0b'
 
-sched = ['0930', '1030', '1130', '1310', '1400', '1630', '1730']  #scheduling parameters for sync task
+sched = ['0930', '1310', '1400', '1630', '1730']  #scheduling parameters for sync task
 
 # List of clinic ids to send data for; if present, ONLY data for these clinics 
 # will accumulate in the staging db and, subsequently, be sent to the MOH 
@@ -23,7 +23,7 @@ prod_db_path = None # temporary path defined in __init__
 prod_db_provider = sqlite3
 prod_db_opts = {'detect_types': sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES}
 
-prod_excel_path = r'C:\EID Masterfile\DNA-Masterbase file.xls'
+prod_excel_path = r'C:\EID Masterfile\DNA-Masterbase file .xls'
 prod_excel_dsn = 'Driver={Microsoft Excel Driver (*.xls)};FIRSTROWHASNAMES=1;READONLY=1;DBQ=%s' % prod_excel_path
 prod_excel_opts = {'autocommit': True}
 
