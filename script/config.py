@@ -6,7 +6,7 @@ import datetime
 
 version = '1.2.0b'
 
-sched = ['0930', '1310', '1400', '1630', '1730']  #scheduling parameters for sync task
+sched = ['0930', '1030', '1130', '1310', '1400', '1630', '1730']  #scheduling parameters for sync task
 
 # List of clinic ids to send data for; if present, ONLY data for these clinics 
 # will accumulate in the staging db and, subsequently, be sent to the MOH 
