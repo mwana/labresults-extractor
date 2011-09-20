@@ -1,4 +1,3 @@
-import pyodbc
 import sqlite3
 import config
 import logging

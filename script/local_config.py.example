@@ -1,1 +1,3 @@
 auth_params = dict(realm='Lab Results', user='', passwd='')
+#source_tag Just a tag for identification
+source_tag = 'lilongwe/kch'

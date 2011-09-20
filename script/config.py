@@ -1,10 +1,10 @@
 import os
 import tempfile
 import sqlite3
-import pyodbc
+import MySQLdb
 import datetime
 
-version = '1.2.0b'
+version = '1.3.0b'
 
 sched = ['0930', '1310', '1400', '1630', '1730']  #scheduling parameters for sync task
 
@@ -22,10 +22,6 @@ staging_db_path = os.path.join(base_path, 'rapidsms_results.db3')
 prod_db_path = None # temporary path defined in __init__
 prod_db_provider = sqlite3
 prod_db_opts = {'detect_types': sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES}
-
-prod_excel_path = r'C:\EID Masterfile\DNA-Masterbase file .xls'
-prod_excel_dsn = 'Driver={Microsoft Excel Driver (*.xls)};FIRSTROWHASNAMES=1;READONLY=1;DBQ=%s' % prod_excel_path
-prod_excel_opts = {'autocommit': True}
 
 log_path = os.path.join(base_path, 'extract.log')
 
@@ -81,6 +77,8 @@ result_map = {
   ' ': '', # empty sample
   'idn': '?', # always retested, should never be verified as-is
   'ind': '?', # always retested, should never be verified as-is
+  'indeterminate': '?', # always retested, should never be verified as-is
+  'negative': '-',
 #  'Sample rejected': 'rejected',
 }
 
@@ -111,10 +109,6 @@ db_access_retries = [2, 3, 5, 5, 10]
 
 #wait times if error during http send (seconds)
 send_retries = [0, 0, 0, 30, 30, 30, 60, 120, 300, 300]
-
-#source_tag Just a tag for identification
-source_tag = 'blantyre/queens'
-
 
 daemon_lock = os.path.join(base_path, 'daemon.lock')
 task_lock = os.path.join(base_path, 'task.lock')
@@ -155,81 +149,55 @@ def _fac_id(log, patient_id):
         fac_id = None
     return fac_id
 
-def _debug_excel_file(log):
-    """logs miscellaneous debugging information to help assess problems with the excel file"""
-    log.debug('debugging prod_excel_path:')
-    log.debug('path: %s' % prod_excel_path)
-    file_exists = os.path.exists(prod_excel_path)
-    log.debug('exists: %s' % file_exists)
-    if file_exists:
-        log.debug('size: %s' % os.path.getsize(prod_excel_path))
-        log.debug('mtime: %s' % os.path.getmtime(prod_excel_path))
-    dir_path = os.path.dirname(prod_excel_path)
-    log.debug('dir_path: %s' % dir_path)
-    dir_exists = os.path.exists(dir_path)
-    log.debug('dir_exists: %s' % dir_exists)
-    if dir_exists:
-        log.debug('listdir: %s' % os.listdir(dir_path))
-
 def bootstrap(log):
     """creates a temporary sqlite-based production db to speed prod db queries"""
-    _debug_excel_file(log)
-    log.debug('moving excel spreadsheet into temp prod db')
+    log.debug('copy records from mysql into temp prod db')
     global prod_db_path
     _, prod_db_path = tempfile.mkstemp()
-    excel_db = pyodbc.connect(prod_excel_dsn, **prod_excel_opts)
-    excel_curs = excel_db.cursor()
+    # connect to MySQL
+    mysql_db = MySQLdb.connect('localhost', 'mwana', 
+        'mwana-labs', 'eid_malawi');
+    mysql_curs = mysql_db.cursor()
     prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     prod_curs = prod_db.cursor()
-    srccols = ('[Serial No]', '[Patient  ID No   (PIN)]', '[QECH LAB ID]',
-               '[PCR Plate No]', '[PCR report date]', '[Result]',
-               '[PIN appearance]', '[QECH ID appearance]', '[Comments]', '[Verified to send]')
-    excel_curs.execute('select %s from [PCR LogBook$]' % ','.join(srccols))
+    srccols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
+                'pcr_plate_no', 'pcr_report_date','result',
+                'comments', 'status', 'approved', 'verified')
+    mysql_curs.execute('select * from pcr_logbook;')
     destcols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
-                'pcr_plate_no', 'pcr_report_date', 'result', 'pin_appearance',
-                'qech_id_appearance', 'comments', 'verified')
-    desttypes = [_sql_type(log, col) for col in excel_curs.description]
-    fac_id_index = destcols.index('fac_id')
-    src_id_index = srccols.index('[Patient  ID No   (PIN)]')
-    src_verified_index = srccols.index('[Verified to send]')
+                'pcr_plate_no', 'pcr_report_date', 'result', 
+                'comments', 'status', 'approved', 'verified')
+    desttypes = [_sql_type(log, col) for col in mysql_curs.description]
+
     date_column_indexes = [destcols.index(col)
-                           for col in ['pcr_plate_no', 'pcr_report_date']]
-    # the verified column contains strings in Excel; convert it to an integer
-    # column (boolean) here
-    desttypes[src_verified_index] = 'integer'
-    # fac_id is not in srccols (we calculate it below), so add the type for
-    # the CREATE TABLE statement here
-    desttypes.insert(fac_id_index, 'varchar(10)')
-    # the columns in Excel are not date columns, so correct the types here.
-    # this has no effect in sqlite3, but is kept in case another db is used
+                           for col in ['pcr_report_date']]
+
+    integer_column_indexes = [destcols.index(col)
+                              for col in ['serial_no','status', 'approved', 
+                                          'verified']]
+    # set date columns
     for idx in date_column_indexes:
         desttypes[idx] = 'date'
+
+    # set integer columns
+    for idx in integer_column_indexes:
+        desttypes[idx] = 'integer'
+
     columns = [' '.join([nm, tp]) for nm, tp in zip(destcols, desttypes)]
     create_sql = 'CREATE TABLE "%s" (%s);' % (prod_db_table, ','.join(columns))
     log.debug('creating temp table with SQL: %s' % create_sql)
     prod_curs.execute(create_sql)
     # '?' placeholders for INSERT statement
     values = ', '.join('?'*len(columns))
-    row = excel_curs.fetchone()
+    row = mysql_curs.fetchone()
     while row:
         row = [isinstance(v, basestring) and v.strip() or v for v in row]
-        patient_id = row[src_id_index]
-        verified = row[src_verified_index]
-        row[src_verified_index] =\
-          int(verified and verified.lower().strip() in ('y', 'yes', 'yse') or 0)
-        fac_id = patient_id and _fac_id(log, patient_id) or None
-        if any(row) and not fac_id:
-            #log.debug('skipping row (%s) with bad fac_id' % row)
-            row = excel_curs.fetchone()
-            continue
-        row.insert(fac_id_index, fac_id) # add fac_id
-        # make date columns to something sqlite can understand
-        for idx in date_column_indexes:
-            if row[idx]:
-                row[idx] = _date_parse(log, row[idx])
+        for idx in integer_column_indexes:
+            row[idx] = int(row[idx])
+            
         insert_sql = 'INSERT INTO "%s" VALUES(%s);' % (prod_db_table, values)
         prod_curs.execute(insert_sql, row)
-        row = excel_curs.fetchone()
+        row = mysql_curs.fetchone()
     index_sql = 'CREATE INDEX prod_id_idx ON %s (%s);' % (prod_db_table,
                                                           prod_db_id_column)
     prod_curs.execute(index_sql)
@@ -238,7 +206,7 @@ def bootstrap(log):
     log.debug('finished creating temp prod db; %s records inserted' % count)
     prod_db.commit()
     prod_curs.close()
-    excel_curs.close()
+    mysql_curs.close()
 
 def teardown(log):
     log.debug('removing temp prod db at %s' % prod_db_path)
