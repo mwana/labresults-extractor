@@ -162,11 +162,11 @@ def bootstrap(log):
     prod_curs = prod_db.cursor()
     srccols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
                 'pcr_plate_no', 'pcr_report_date','result',
-                'comments', 'status', 'approved', 'verified')
+                'comments', 'status', 'approved', 'action', 'verified')
     mysql_curs.execute('select * from pcr_logbook;')
     destcols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
                 'pcr_plate_no', 'pcr_report_date', 'result', 
-                'comments', 'status', 'approved', 'verified')
+                'comments', 'status', 'approved', 'action', 'verified')
     desttypes = [_sql_type(log, col) for col in mysql_curs.description]
 
     date_column_indexes = [destcols.index(col)
@@ -174,7 +174,7 @@ def bootstrap(log):
 
     integer_column_indexes = [destcols.index(col)
                               for col in ['serial_no','status', 'approved', 
-                                          'verified']]
+                                          'action', 'verified']]
     # set date columns
     for idx in date_column_indexes:
         desttypes[idx] = 'date'
