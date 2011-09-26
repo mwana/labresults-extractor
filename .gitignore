@@ -1,1 +1,3 @@
 local_config.py
+*.log
+*.db3
