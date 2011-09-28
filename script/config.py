@@ -141,6 +141,13 @@ def _date_parse(log, date_str):
         result = None
     return result and datetime.date(result.year, result.month, result.day)
 
+def get_unique_id(log, sample_id):
+    global source_id
+    log.debug('got sample %s adding %s' % (sample_id, source_id))
+    sample_id = str(sample_id) + source_id
+    log.debug('returning sample id: %s' % sample_id)
+    return sample_id
+
 def _fac_id(log, patient_id):
     if patient_id and '-' in patient_id:
         fac_id = patient_id.split('-')[0]
@@ -169,11 +176,12 @@ def bootstrap(log):
                 'comments', 'status', 'approved', 'action', 'verified')
     desttypes = [_sql_type(log, col) for col in mysql_curs.description]
 
+    sample_id_index = destcols.index('serial_no')
     date_column_indexes = [destcols.index(col)
                            for col in ['pcr_report_date']]
 
     integer_column_indexes = [destcols.index(col)
-                              for col in ['serial_no','status', 'approved', 
+                              for col in ['status', 'approved', 
                                           'action', 'verified']]
     # set date columns
     for idx in date_column_indexes:
@@ -194,7 +202,8 @@ def bootstrap(log):
         row = [isinstance(v, basestring) and v.strip() or v for v in row]
         for idx in integer_column_indexes:
             row[idx] = int(row[idx])
-            
+
+        row[sample_id_index] = get_unique_id(log, row[sample_id_index])
         insert_sql = 'INSERT INTO "%s" VALUES(%s);' % (prod_db_table, values)
         prod_curs.execute(insert_sql, row)
         row = mysql_curs.fetchone()

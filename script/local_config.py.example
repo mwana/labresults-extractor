@@ -1,3 +1,11 @@
 auth_params = dict(realm='Lab Results', user='', passwd='')
 #source_tag Just a tag for identification
 source_tag = 'lilongwe/kch'
+#source_id for unique sample ids, uncomment and delete unused ones.
+# kch : .1
+#source_id = ".1"
+# queens: .2
+#source_id = ".2"
+# mzuzu: .3
+#source_id = ".3"
+
