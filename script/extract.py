@@ -14,6 +14,7 @@ from threading import Thread
 import os
 import os.path
 import bz2
+import MySQLdb
 
 identity = lambda x: x
 
@@ -43,7 +44,10 @@ def dbconn (db):
   if db == 'prod':
     return config.prod_db_provider.connect(config.prod_db_path, **config.prod_db_opts)
 # to use the Easysoft Access ODBC driver from linux:
-#    return pyodbc.connect('DRIVER={Easysoft ODBC-ACCESS};MDBFILE=%s' % config.prod_db_path)
+#    return pyodbc.connect('DRIVER={Easysoft ODBC-ACCESS};MDBFILE=%s' %
+    #    config.prod_db_path)
+  elif db == 'lims':
+    return MySQLdb.connect('localhost', 'mwana', 'mwana-labs', 'eid_malawi');
   elif db == 'staging':
     return sqlite3.connect(config.staging_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
   else:
@@ -104,15 +108,16 @@ def facilities_where_clause ():
 
 def archive_old_samples (lookback):
   """pre-populate very old samples in the prod db into staging, so they don't show up in 'new record' queries"""
-  conn = dbconn('prod')
+  conn = dbconn('lims')
   curs = conn.cursor()
-  sql = "select %s from %s where %s < ?" % (config.prod_db_id_column,
-                                            config.prod_db_table,
-                                            config.prod_db_date_column)
+  sql = "select %s from %s where %s < '%s'" % (config.lims_db_id_column,
+                                            config.lims_db_table,
+                                            config.lims_db_date_column,
+                                            lookback)
   facilities = facilities_where_clause()
   if facilities:
     sql += ' AND %s' % facilities
-  curs.execute(sql, [days_ago(lookback).strftime('%Y-%m-%d')])
+  curs.execute(sql)
   archive_ids = set(rec[0] for rec in curs.fetchall())
   log.info('archiving %d records' % len(archive_ids))
   curs.close()
@@ -121,6 +126,7 @@ def archive_old_samples (lookback):
   conn = dbconn('staging')
   curs = conn.cursor()
   for id in archive_ids:
+    id = config.get_unique_id(log, id)
     curs.execute("insert into samples (sample_id, sync_status) values (?, 'historical')", [id])
   conn.commit()
   curs.close()
