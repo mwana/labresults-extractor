@@ -8,12 +8,12 @@ version = '1.3.0b'
 
 sched = ['0930', '1310', '1400', '1630', '1730']  #scheduling parameters for sync task
 
-# List of clinic ids to send data for; if present, ONLY data for these clinics 
-# will accumulate in the staging db and, subsequently, be sent to the MOH 
+# List of clinic ids to send data for; if present, ONLY data for these clinics
+# will accumulate in the staging db and, subsequently, be sent to the MOH
 # server.  If empty or None, data for all clinics will be sent.
 clinics = []
 
-#path to the Lab database                                        
+#path to the Lab database
 import os.path
 base_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -60,6 +60,7 @@ prod_db_columns = [
   'NULL',
   'NULL',
   'verified',
+  'care_clinic_no'
 ]
 
 #date_parse = lambda x: x.date()
@@ -103,8 +104,8 @@ testing_window = 365   #number of days after a requisition forms has been entere
                        #result to be reported
 init_lookback = None   #when initializing the system, from when to send the data, YYYY-mm-dd,
                        #results for (everything before that is 'archived').  if None, no archiving is done.
-                      
-                      
+
+
 transport_chunk = 5000  #maximum size per POST to rapidsms server (bytes) (approximate)
 send_compressed = False  #if True, payloads will be sent bz2-compressed
 compression_factor = .2 #estimated compression factor
@@ -166,18 +167,18 @@ def bootstrap(log):
     global prod_db_path
     _, prod_db_path = tempfile.mkstemp()
     # connect to MySQL
-    mysql_db = MySQLdb.connect('localhost', 'mwana', 
+    mysql_db = MySQLdb.connect('localhost', 'mwana',
         'mwana-labs', 'eid_malawi');
     mysql_curs = mysql_db.cursor()
     prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     prod_curs = prod_db.cursor()
     srccols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
                 'pcr_plate_no', 'pcr_report_date','result',
-                'comments', 'status', 'approved', 'action', 'verified')
+                'comments', 'status', 'approved', 'action', 'verified', 'care_clinic_no')
     mysql_curs.execute('select * from pcr_logbook;')
     destcols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
-                'pcr_plate_no', 'pcr_report_date', 'result', 
-                'comments', 'status', 'approved', 'action', 'verified')
+                'pcr_plate_no', 'pcr_report_date', 'result',
+                'comments', 'status', 'approved', 'action', 'verified', 'care_clinic_no')
     desttypes = [_sql_type(log, col) for col in mysql_curs.description]
 
     sample_id_index = destcols.index('serial_no')
@@ -185,7 +186,7 @@ def bootstrap(log):
                            for col in ['pcr_report_date']]
 
     integer_column_indexes = [destcols.index(col)
-                              for col in ['status', 'approved', 
+                              for col in ['status', 'approved',
                                           'action', 'verified']]
     # set date columns
     for idx in date_column_indexes:
