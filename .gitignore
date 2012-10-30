@@ -1,3 +1,10 @@
 local_config.py
 *.log
 *.db3
+/.idea/.name
+/.idea/encodings.xml
+/.idea/labresults-extractor.iml
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/vcs.xml
+/.idea/workspace.xml
