@@ -6,7 +6,7 @@ import datetime
 
 version = '1.3.0b'
 
-sched = ['0930', '1310', '1400', '1630', '1730']  #scheduling parameters for sync task
+sched = ['0930', '1310', '1400', '1630', '1730']  # scheduling parameters for sync task
 
 # List of clinic ids to send data for; if present, ONLY data for these clinics
 # will accumulate in the staging db and, subsequently, be sent to the MOH
@@ -19,9 +19,9 @@ base_path = os.path.dirname(os.path.abspath(__file__))
 
 staging_db_path = os.path.join(base_path, 'rapidsms_results.db3')
 
-prod_db_path = None # temporary path defined in __init__
+prod_db_path = None  # temporary path defined in __init__
 prod_db_provider = sqlite3
-prod_db_opts = {'detect_types': sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES}
+prod_db_opts = {'detect_types': sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES}
 
 log_path = os.path.join(base_path, 'extract.log')
 
@@ -80,11 +80,11 @@ date_parse = lambda x: x
 result_map = {
   'positive': '+',
   'neg': '-',
-  'invalid': '', # usually means there was no sample, so there's no result
-  ' ': '', # empty sample
-  'idn': '?', # always retested, should never be verified as-is
-  'ind': '?', # always retested, should never be verified as-is
-  'indeterminate': '?', # always retested, should never be verified as-is
+  'invalid': '',  # usually means there was no sample, so there's no result
+  ' ': '',  # empty sample
+  'idn': '?',  # always retested, should never be verified as-is
+  'ind': '?',  # always retested, should never be verified as-is
+  'indeterminate': '?',  # always retested, should never be verified as-is
   'negative': '-',
 #  'Sample rejected': 'rejected',
 }
@@ -95,20 +95,20 @@ submit_url = 'https://malawi-qa.projectmwana.org/labresults/incoming/'
 # set these in local_config.py
 auth_params = dict(realm='Lab Results', user='', passwd='')
 
-always_on_connection = True       #if True, assume computer 'just has' internet
+always_on_connection = True       # if True, assume computer 'just has' internet
 
-result_window = 365    #number of days to listen for further changes after a definitive result has been reported
-unresolved_window = 365#number of days to listen for further changes after a non-definitive result has been
+result_window = 365    # number of days to listen for further changes after a definitive result has been reported
+unresolved_window = 365  # number of days to listen for further changes after a non-definitive result has been
                        #reported (indeterminate, inconsistent)
-testing_window = 365   #number of days after a requisition forms has been entered into the system to wait for a
-                       #result to be reported
-init_lookback = None   #when initializing the system, from when to send the data, YYYY-mm-dd,
-                       #results for (everything before that is 'archived').  if None, no archiving is done.
+testing_window = 365   # number of days after a requisition forms has been entered into the system to wait for a
+                       # result to be reported
+init_lookback = None   # when initializing the system, from when to send the data, YYYY-mm-dd,
+                       # results for (everything before that is 'archived').  if None, no archiving is done.
 
 
-transport_chunk = 5000  #maximum size per POST to rapidsms server (bytes) (approximate)
-send_compressed = False  #if True, payloads will be sent bz2-compressed
-compression_factor = .2 #estimated compression factor
+transport_chunk = 5000  # maximum size per POST to rapidsms server (bytes) (approximate)
+send_compressed = False  # if True, payloads will be sent bz2-compressed
+compression_factor = .2  # estimated compression factor
 
 
 #wait times if exception during db access (minutes)
@@ -125,6 +125,7 @@ localconfig = os.path.join(script_dir, 'local_config.py')
 if os.path.exists(localconfig):
     execfile(localconfig)
 
+
 def _sql_type(log, col_desc):
     """returns the database column declaration for the given column description, e.g., for use in a create statement"""
     name, type_code, display_size, internal_size, precision, scale, null_ok = col_desc
@@ -137,6 +138,7 @@ def _sql_type(log, col_desc):
         sql_type = 'varchar(255)'
     return sql_type
 
+
 def _date_parse(log, date_str):
     """attempts to parse a date from the Excel file, possibly in some random format"""
     date_str = date_str.replace('/', '-')
@@ -148,10 +150,12 @@ def _date_parse(log, date_str):
         result = None
     return result and datetime.date(result.year, result.month, result.day)
 
+
 def get_unique_id(log, sample_id):
     global source_id
     sample_id = str(sample_id) + source_id
     return sample_id
+
 
 def _fac_id(log, patient_id):
     if patient_id and '-' in patient_id:
@@ -161,19 +165,19 @@ def _fac_id(log, patient_id):
         fac_id = None
     return fac_id
 
+
 def bootstrap(log):
     """creates a temporary sqlite-based production db to speed prod db queries"""
     log.debug('copy records from mysql into temp prod db')
     global prod_db_path
     _, prod_db_path = tempfile.mkstemp()
     # connect to MySQL
-    mysql_db = MySQLdb.connect('localhost', 'mwana',
-        'mwana-labs', 'eid_malawi');
+    mysql_db = MySQLdb.connect('localhost', 'mwana', 'mwana-labs', 'eid_malawi')
     mysql_curs = mysql_db.cursor()
-    prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
+    prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
     prod_curs = prod_db.cursor()
     srccols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
-                'pcr_plate_no', 'pcr_report_date','result',
+                'pcr_plate_no', 'pcr_report_date', 'result',
                 'comments', 'status', 'approved', 'action', 'verified', 'care_clinic_no')
     mysql_curs.execute('select * from pcr_logbook;')
     destcols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
@@ -201,7 +205,7 @@ def bootstrap(log):
     log.debug('creating temp table with SQL: %s' % create_sql)
     prod_curs.execute(create_sql)
     # '?' placeholders for INSERT statement
-    values = ', '.join('?'*len(columns))
+    values = ', '.join('?' * len(columns))
     row = mysql_curs.fetchone()
     while row:
         row = [isinstance(v, basestring) and v.strip() or v for v in row]
@@ -222,8 +226,8 @@ def bootstrap(log):
     prod_curs.close()
     mysql_curs.close()
 
+
 def teardown(log):
     log.debug('removing temp prod db at %s' % prod_db_path)
     if prod_db_path and os.path.exists(prod_db_path):
         os.remove(prod_db_path)
-
