@@ -13,7 +13,7 @@ sched = ['0930', '1310', '1400', '1630', '1730']  # scheduling parameters for sy
 # server.  If empty or None, data for all clinics will be sent.
 clinics = []
 
-#path to the Lab database
+# path to the Lab database
 import os.path
 base_path = os.path.dirname(os.path.abspath(__file__))
 
@@ -41,7 +41,7 @@ lims_db_date_column = 'datetested'
 # order: sample_id, patient_id, facility_code, collected_on, received_on,
 # processed_on, result, rejected (boolean), rejection_reason,
 # reject_reason_other, birthdate, child_age, child_age_unit, sex, mother_age,
-# health_worker, health_worker_title, verified
+# health_worker, health_worker_title, verified, care_clinic_no
 prod_db_columns = [
   'patient_id',
   'fac_id',
@@ -99,13 +99,11 @@ always_on_connection = True       # if True, assume computer 'just has' internet
 
 result_window = 365    # number of days to listen for further changes after a definitive result has been reported
 unresolved_window = 365  # number of days to listen for further changes after a non-definitive result has been
-                       #reported (indeterminate, inconsistent)
+                         # reported (indeterminate, inconsistent)
 testing_window = 365   # number of days after a requisition forms has been entered into the system to wait for a
                        # result to be reported
 init_lookback = None   # when initializing the system, from when to send the data, YYYY-mm-dd,
                        # results for (everything before that is 'archived').  if None, no archiving is done.
-
-
 transport_chunk = 5000  # maximum size per POST to rapidsms server (bytes) (approximate)
 send_compressed = False  # if True, payloads will be sent bz2-compressed
 compression_factor = .2  # estimated compression factor
