@@ -20,7 +20,7 @@ identity = lambda x: x
 
 db_fields = ['sample_id', 'imported_on', 'resolved_on', 'patient_id', 'facility_code', 'collected_on',
              'received_on', 'processed_on', 'result', 'result_detail', 'birthdate', 'child_age',
-             'child_age_unit', 'health_worker', 'health_worker_title', 'sync_status', 'verified']
+             'child_age_unit', 'health_worker', 'health_worker_title', 'sync_status', 'verified', 'care_clinic_no']
 
 def init_logging ():
   """initialize the logging framework"""
@@ -57,7 +57,7 @@ def pkey_fetch (curs, query, args=()):
   """query the primary key column of a table and return the results as a set of ids"""
   curs.execute(query, args)
   return set(rec[0] for rec in curs.fetchall())
-    
+
 def init_staging_db (lookback):
   """initialize the staging database"""
   create_staging_db()
@@ -66,7 +66,7 @@ def init_staging_db (lookback):
   else:
     log.info('skipping archive because lookback is None')
   log.info('staging db initialized')
-    
+
 def create_staging_db ():
   """create the tables in the sqlite db"""
   conn = dbconn('staging')
@@ -90,11 +90,12 @@ def create_staging_db ():
       health_worker varchar(50),          --name of clinic worker collecting sample
       health_worker_title varchar(50),    --title of clinic worker
       verified int,
+      care_clinic_no varchar(50),
       sync_status varchar(10) not null default 'new'  --status of record's sync with rapidsms server: 'new', 'updated',
                                                       --'synced', 'historical'
   )
   ''')
-    
+
   conn.commit()
   curs.close()
   conn.close()
@@ -122,7 +123,7 @@ def archive_old_samples (lookback):
   log.info('archiving %d records' % len(archive_ids))
   curs.close()
   conn.close()
-  
+
   conn = dbconn('staging')
   curs = conn.cursor()
   for id in archive_ids:
@@ -131,7 +132,7 @@ def archive_old_samples (lookback):
   conn.commit()
   curs.close()
   conn.close()
-  
+
 def get_ids (db, col, table, normfunc=identity):
   """return a set of all primary key IDs in the given database"""
   conn = dbconn(db)
@@ -157,7 +158,7 @@ def check_new_records ():
   prod_ids = get_ids('prod', config.prod_db_id_column, config.prod_db_table,
                      normfunc=unicode)
   rsms_ids = get_ids('staging', 'sample_id', 'samples', normfunc=unicode)
-  
+
   deleted_ids = rsms_ids - prod_ids
   new_ids = prod_ids - rsms_ids
 
@@ -165,7 +166,7 @@ def check_new_records ():
     log.warning('records deleted from lab database! (%s)' % ', '.join(sorted(list(deleted_ids))))
 
   return (new_ids, deleted_ids)
-  
+
 def tx (val, func=identity, nullval=None):
   """helper function for reading values from database"""
   return func(val) if val != None else nullval
@@ -175,7 +176,7 @@ def query_sample (sample_id, conn=None):
   one_time_conn = (conn == None)
   if one_time_conn:
     conn = dbconn('prod')
-    
+
   curs = conn.cursor()
   sql = '''
 select %s
@@ -187,18 +188,18 @@ where %s = ?
   if facilities:
     sql += ' AND %s' % facilities
   curs.execute(sql, (sample_id,))
-    
+
   results = curs.fetchall()
   curs.close()
-  
+
   if one_time_conn:
     conn.close()
-    
+
   if len(results) == 0:
     raise ValueError('sample [%s] not found' % sample_id)
 
   return results[0]
-    
+
 def read_sample_record (sample_id, conn=None):
   """read and process/clean up a single sample row for the lab db"""
   sample_row = query_sample(sample_id, conn)
@@ -218,7 +219,8 @@ def read_sample_record (sample_id, conn=None):
   sample['health_worker'] = sample_row[14]
   sample['health_worker_title'] = sample_row[15]
   sample['verified'] = sample_row[16]
-  
+  sample['care_clinic_no'] = sample_row[17]
+
   if sample_row[5] is not None and sample_row[5].lower() not in config.result_map:
     log.warn('No result mapping found for "%s"' % sample_row[5])
   detected = tx(sample_row[5], lambda x: config.result_map.get(x.lower(), x))
@@ -239,12 +241,12 @@ def read_sample_record (sample_id, conn=None):
       result = 'inconsistent'
     else:
       result = 'rejected'
-      
+
   if result == 'inconsistent':
     result_detail = ('positive' if detected == '+' else 'negative') + '/rejected'
   elif result == 'rejected':
     reject_reason = sample_row[7]
-    
+
     if reject_reason in (1, 2, 3, 4, 5):
       result_detail = {
         1: 'technical problems',
@@ -260,26 +262,26 @@ def read_sample_record (sample_id, conn=None):
       result_detail = 'unknown'
   else:
     result_detail = None
-  
+
   sample['result'] = result
   sample['result_detail'] = result_detail
-  
-  return sample  
+
+  return sample
 
 def read_staged_record (sample_id, conn=None):
   """read a saved record from the staging db"""
   one_time_conn = (conn == None)
   if one_time_conn:
     conn = dbconn('staging')
-    
+
   curs = conn.cursor()
   curs.execute('''
     select %s from samples
     where sample_id = '%s'
     ''' % (', '.join(db_fields[1:]), sample_id))
-    
+
   results = curs.fetchall()
-  curs.close()  
+  curs.close()
   if one_time_conn:
     conn.close()
 
@@ -287,13 +289,13 @@ def read_staged_record (sample_id, conn=None):
     raise ValueError('sample [%s] not found' % sample_id)
 
   sample_row = results[0]
-  
+
   sample = {}
   for i in range(0, len(db_fields)):
     sample[db_fields[i]] = sample_row[i - 1] if i >= 1 else sample_id
 
   return sample
-  
+
 def get_update_ids (deleted_ids):
   """get the ids of sample records that still lie within the various 'update listening' windows"""
   conn = dbconn('staging')
@@ -304,31 +306,31 @@ def get_update_ids (deleted_ids):
       select sample_id from samples
       where result %s and %s >= ? and sync_status != 'historical'
     ''' % (result_clause, date_field), [days_ago(window)]) - deleted_ids
-  
+
   #ids for records where result reported; still listening for any changes to record
   update_window_ids = sample_window(curs, "in ('positive', 'negative', 'rejected')", 'resolved_on', config.result_window)
-  
+
   #ids for records where status indetermined; waiting for followup/resolution updates
   incomplete_window_ids = sample_window(curs, "in ('indeterminate', 'inconsistent')", 'resolved_on', config.unresolved_window)
-  
-  #ids for records still awaiting test result 
-  testing_window_ids = sample_window(curs, 'is null', 'imported_on', config.testing_window)  
+
+  #ids for records still awaiting test result
+  testing_window_ids = sample_window(curs, 'is null', 'imported_on', config.testing_window)
 
   curs.close()
   conn.close()
-  
+
   return (update_window_ids, incomplete_window_ids, testing_window_ids)
-  
+
 def query_prod_records ():
   """get all records of interest from the lab database (new records and records for which still listening for updates)"""
   (new_ids, deleted_ids) = check_new_records()
   (update_window_ids, incomplete_window_ids, testing_window_ids) = get_update_ids(deleted_ids)
   ids_of_interest = new_ids | update_window_ids | incomplete_window_ids | testing_window_ids
-  
+
   log.info('querying records of interest from lab: %d total%s; %d new; %d resolved; %d in limbo; %d untested' %
             (len(ids_of_interest), (' (+ %d to delete)' % len(deleted_ids)) if len(deleted_ids) > 0 else '',
             len(new_ids), len(update_window_ids), len(incomplete_window_ids), len(testing_window_ids)))
-  
+
   records = []
   conn = dbconn('prod')
   for x, id in enumerate(ids_of_interest):
@@ -340,14 +342,14 @@ def query_prod_records ():
       source = 'update-incomplete'
     elif id in testing_window_ids:
       source = 'update-untested'
-  
+
     records.append((source, read_sample_record(id, conn)))
     #if x % 1000 == 0:
     #  log.debug('  retrieved %s / %s records' % (x, len(ids_of_interest)))
   conn.close()
 
   return (records, deleted_ids)
-  
+
 def pull_records ():
   """pull record updates from lab to the staging db"""
   try:
@@ -355,14 +357,14 @@ def pull_records ():
   except:
     log.exception('error accessing lab database (read-only); staging database not touched')
     raise RuntimeError('caught')
-  
+
   try:
     conn = dbconn('staging')
     curs = conn.cursor()
-    
+
     for del_id in deleted_ids:
       delete_record(del_id, curs)
-    
+
     newcount = 0
     updatecount = 0
     newcount_filt = 0
@@ -377,7 +379,7 @@ def pull_records ():
         updatecount += 1
         if filt:
           updatecount_filt += 1
-      
+
     conn.commit()
     if config.clinics:
       log.info('staging db: added %d (%d) new records, updated %d (%d) existing records, deleted %d records' %
@@ -391,18 +393,18 @@ def pull_records ():
   finally:
     curs.close()
     conn.close()
-  
+
 def process_record (record, source, curs):
   """process a single record of interest an mirror data to the staging db"""
   filt = record['facility_code'] in config.clinics if config.clinics else True
-  
+
   if source == 'new':
     record['imported_on'] = date.today()
     record['sync_status'] = 'new'
     record['resolved_on'] = date.today() if record['result'] != None else None
     add_record(record, curs)
     return ('new', filt)
-    
+
   else: #existing record
     #check if any fields changed
     existing_record = read_staged_record(record['sample_id'])
@@ -410,20 +412,20 @@ def process_record (record, source, curs):
     for k, v in record.items():
       if k in existing_record and v != existing_record[k]:
         changed_fields.append(k)
-    
+
     #if the record has changed
     if len(changed_fields) > 0:
       log.info('record [%s] updated: %s' % (record['sample_id'], ', '.join(sorted(list(changed_fields)))))
-    
+
       record['sync_status'] = 'update'
       #fill in staging-only fields
       for f in ('imported_on', 'resolved_on'):
         record[f] = existing_record[f]
-      
+
       #if 'result' changed from a non-definitive result to a definitive result, reset the 'resolved_on' counter
       if 'result' in changed_fields and update_resolved_date(existing_record['result'], record['result']):
         record['resolved_on'] = date.today()
-        
+
       update_record(record, curs)
       return ('update', filt)
     else:
@@ -437,21 +439,21 @@ def update_resolved_date (old_result, new_result):
     return True
   else:
     return False
-      
+
 def add_record (record, curs):
   """insert a new sample record into staging"""
   curs.execute('''
     insert into samples (%s) values (%s)
   ''' % (', '.join(db_fields), ', '.join(['?' for f in db_fields])), [record[f] for f in db_fields])
-   
+
 def update_record (record, curs):
   """update a record in staging; delete then re-add, because the sql is easier"""
   delete_record(record['sample_id'], curs)
   add_record(record, curs)
 
 def delete_record (sample_id, curs):
-  curs.execute('delete from samples where sample_id = ?', [sample_id])      
-  
+  curs.execute('delete from samples where sample_id = ?', [sample_id])
+
 
 def parse_log_line (logln, lnum=-1):
   """parse the text line of a single log entry"""
@@ -462,7 +464,7 @@ def parse_log_line (logln, lnum=-1):
   logentry['msg'] = ';'.join(pieces[2:])
   logentry['ln'] = lnum
   return logentry
-  
+
 def read_log_lines ():
   """generator that returns raw lines from the log files in reverse order"""
   for f in [config.log_path, config.log_path + '.1']:
@@ -470,7 +472,7 @@ def read_log_lines ():
       lines = [l.rstrip() for l in open(f).readlines() if l.strip()]
     except IOError:
       lines = []
-      
+
     for line in reversed(list(enumerate(lines))):
       yield line
 
@@ -482,22 +484,22 @@ def read_logs ():
       logline = line
     else:
       logline = line + '\n' + logline
-    
+
     #the first line of a multi-line log entry begins with a datestamp
     if re.match('[0-9]{4}-[0-9]{2}-[0-9]{2}', logline):
       yield parse_log_line(logline, lnum)
       logline = ''
-    
+
   if logline != '':
     yield parse_log_line('2000-01-01 00:00:00,000;WARNING;incomplete log entry:[%s]' % logline)
-      
+
 def get_unsynced_logs ():
   """return a list of all log entries that have not been synced to the server"""
   sync_msg = 'sync successful'
   coll_msg = 'logs collected'
   reached_sync_point = False
   reached_coll_point = False
-  
+
   logs = []
   for logentry in read_logs():
     if logentry['msg'] == coll_msg:
@@ -507,30 +509,30 @@ def get_unsynced_logs ():
     else:
       if logentry['msg'] == sync_msg:
         reached_sync_point = True
-    
+
       logs.append(logentry)
   if not reached_coll_point:
     logs.append(parse_log_line('2000-01-01 00:00:00,000;WARNING;reached end of logs'))
 
   return logs
-  
+
 def get_unsynced_records ():
   """return the set of records that need to be synced to rapidsms"""
   conn = dbconn('staging')
   curs = conn.cursor()
   unsynced_ids = pkey_fetch(curs, "select sample_id from samples where sync_status in ('new', 'update')")
   curs.close()
-  
+
   records = []
   for id in unsynced_ids:
     records.append(read_staged_record(id, conn))
   conn.close()
-  
+
   return records
-  
+
 def retry_task (task, retry_sched):
   """execute a task, retrying the task a fixed number of times until success
-  
+
   the task is encapsulated in the 'task' object; see the *Task classes. the max number of retries
   and delays between them is determined by the retry_sched param, a list of retry_delays in seconds"""
   success = False
@@ -540,7 +542,7 @@ def retry_task (task, retry_sched):
   while not success and tries < total_tries:
     success = task.do()
     tries += 1
-    
+
     if not success:
       if tries < total_tries:
         retry_wait = retry_sched[tries - 1]
@@ -564,11 +566,11 @@ class Task:
 
   def hook_fail (total_tries):
       called if the task is unsuccessful after exhausting all attempts
-      
+
   def hook_fail_retry (tries, total_tries, retry_wait):
       called if the taks is unsuccessful on a given attempt, and another run will be attempted; tries
       is the attempt # that just failed, retry_wait is the delay in second before the next attempt
-      
+
   def result (success):
       return the result of the task; success is whether execution was successful (note: this result will
       usually have to be cached in a class variable in do()
@@ -576,7 +578,7 @@ class Task:
 
 class DBSyncTask:
   """retryable task for syncing the lab and staging databases"""
-  
+
   def do (self):
     try:
       pull_records()
@@ -592,13 +594,13 @@ class DBSyncTask:
 
   def hook_fail (self, total_tries):
     log.info('all db sync attempts failed')
-  
+
   def hook_fail_retry (self, tries, total_tries, retry_wait):
     log.info('db sync attempt %d of %d failed; trying again in %d minutes' % (tries, total_tries, retry_wait / 60))
-      
+
   def result (self, success):
     return None
-      
+
 class GetUnsyncedRecordsTask:
   """retryable task for pulling the set of records to sync from the staging database"""
 
@@ -613,16 +615,16 @@ class GetUnsyncedRecordsTask:
   def hook_success (self, tries, total_tries):
     if tries > 1:
       log.info('successfully read records to sync on attempt %d' % tries)
-  
+
   def hook_fail (self, total_tries):
     log.info('could not read records to sync; no records will be sent in this payload')
-  
+
   def hook_fail_retry (self, tries, total_tries, retry_wait):
     pass
-    
+
   def result (self, success):
     return self.records if success else []
-  
+
 def sync_databases ():
   """sync the lab and staging databases"""
   retry_task(DBSyncTask(), [60*x for x in config.db_access_retries])
@@ -646,9 +648,9 @@ def condense_record (record):
   replace_field(record, 'health_worker_title', 'hw_tit')
   replace_field(record, 'sync_status', 'sync')
   replace_field(record, 'birthdate', 'dob')
- 
+
   return record
-  
+
 def aggregate_submit_data():
   """collect all the different types of data to be sent to rapidsms (sample records, log entries),
   and return as a unified list of datums"""
@@ -656,7 +658,7 @@ def aggregate_submit_data():
   #get sample records
   sync_records = retry_task(GetUnsyncedRecordsTask(), [30, 60, 120])[1]
   sync_records = [condense_record(rec) for rec in sync_records]
-  
+
   #get logs
   try:
     logs = get_unsynced_logs()
@@ -667,25 +669,25 @@ def aggregate_submit_data():
 
   log.info('%d sample records and %d log entries to send' % (len(sync_records), len(logs)))
   return interlace_data(sync_records, logs)
-  
+
 def interlace_data (records, logs):
   """we attempt to chunk the data into many small submissions to help mitigate the effect of flaky connections;
   this function attempts to optimize the distribution of our data records in case only a few POSTs get through"""
-  
+
   #send logs first in reverse-chron order (logs are passed in already sorted)
   for log in logs:
     yield ('log', log)
-    
+
   #then send records in random order
   random.shuffle(records)
   for rec in records:
     yield ('rec', rec)
-  
+
 class JSONEncoderWithDate(json.JSONEncoder):
   """extension to base json encoder that supports dates"""
   def __init__(self):
     json.JSONEncoder.__init__(self, ensure_ascii=False)
-    
+
   def default (self, o):
     if isinstance(o, datetime):
       return o.strftime('%Y-%m-%d %H:%M:%S')
@@ -693,25 +695,25 @@ class JSONEncoderWithDate(json.JSONEncoder):
       return o.strftime('%Y-%m-%d')
     else:
       return json.JSONEncoder.default(self, o)
-  
+
 def to_json (data):
   """convert object to json"""
   return JSONEncoderWithDate().encode(data)
-  
+
 def chunk_submissions (data_stream):
   """turn the stream of data objects into transmission chunks of (approximate) max size"""
   chunk_size_limit = config.transport_chunk / (config.compression_factor if config.send_compressed else 1.)
-  
+
   chunk, size = [], 0
   for datum in data_stream:
     (type, data) = datum
     chunk.append(datum)
     size += len(to_json(data))
-    
+
     if size >= chunk_size_limit:
       yield chunk
       chunk, size = [], 0
-  
+
   if len(chunk) > 0:
     yield chunk
 
@@ -719,17 +721,17 @@ class Payload:
   """a container class that represents a json payload and the sample ids of the records contained within it"""
   def __init__ (self, chunk=[], id='.'):
     self.json, self.record_ids = self.create_payload(chunk, id)
-    
+
   def create_payload (self, chunk, id):
     types = {'rec': [], 'log': []}
     record_ids = []
-    
+
     for datum in chunk:
       (type, data) = datum
       types[type].append(data)
       if type == 'rec':
         record_ids.append(data['id'])
-        
+
     json_struct = {}
     json_struct['source'] = config.source_tag
     json_struct['version'] = config.version
@@ -738,10 +740,10 @@ class Payload:
     json_struct['samples'] = types['rec']
     json_struct['logs'] = types['log']
     json = to_json(json_struct)
-    
+
     if config.send_compressed:
       json = bz2.compress(json)
-    
+
     return (json, record_ids)
 
 def connection (payload):
@@ -756,12 +758,12 @@ def connection (payload):
     headers = {'Content-Type': 'text/json'}
     if config.send_compressed:
       headers['Content-Transfer-Encoding'] = 'bzip2'
-    
+
     try:
       f = urllib2.urlopen(urllib2.Request(config.submit_url, payload.json, headers=headers))
       response = f.read()
       code = f.code
-      
+
       if response == 'SUCCESS' and code == 200:
         return (True, None)
       else:
@@ -770,7 +772,7 @@ def connection (payload):
       return (False, 'http response> %d' % e.code)
   except Exception, e:
     return (False, '%s: %s' % (type(e), str(e)))
-    
+
 class UpdateSyncFlagTask:
   """retryable task to update the 'sync' flag of records that were successfully sent"""
 
@@ -784,7 +786,7 @@ class UpdateSyncFlagTask:
         curs = conn.cursor()
         for id in self.payload.record_ids:
           curs.execute("update samples set sync_status = 'synced' where sample_id = ?", [id])
-        conn.commit()        
+        conn.commit()
         return True
       except:
         log.exception('unable to update sync flag in records')
@@ -800,25 +802,25 @@ class UpdateSyncFlagTask:
   def hook_success (self, tries, total_tries):
     if tries > 1:
       log.info('successfully updated sync flag on attempt %d' % tries)
-    
+
   def hook_fail (self, total_tries):
-    log.warning('successfully sent records, but failed to update sync flag; records will be resent in next batch')  
-  
+    log.warning('successfully sent records, but failed to update sync flag; records will be resent in next batch')
+
   def hook_fail_retry (self, tries, total_tries, retry_wait):
     pass
-    
+
   def result (self, success):
     return None
-  
+
 def update_sync_flag (payload):
   """update the sync flag of successfully sent records"""
   retry_task(UpdateSyncFlagTask(payload), [30, 30])
-  
+
 def trunc (text):
   """error message can come from arbitrary http response, so check that length is reasonable"""
   limit = 300
   return text if len(text) < limit else (text[:limit-10] + '...truncated')
-  
+
 def send_payload (payload):
   """send an individual payload and update the database to reflect success"""
   (success, fail_reason) = connection(payload)
@@ -828,13 +830,13 @@ def send_payload (payload):
   else:
     log.warning('failed send attempt: ' + trunc(fail_reason))
   return success
-    
+
 class SendAllTask:
   """task manager for sending N payloads, allowing a certain number of retries"""
   def __init__ (self, payloads):
     self.payloads = payloads
     self.i = 0
-  
+
   def do (self):
     while self.i < len(self.payloads):
       success = send_payload(self.payloads[self.i])
@@ -844,19 +846,19 @@ class SendAllTask:
       else:
         return False
     return True
-    
+
   def hook_success (self, tries, total_tries):
     log.info('sync successful')
-    
+
   def hook_fail (self, total_tries):
     log.warning('too many failed send attempts; aborting send; %d of %d payloads successfully transmitted' % (self.i, len(self.payloads)))
-    
+
   def hook_fail_retry (self, tries, total_tries, retry_wait):
     log.warning('failed send on payload %d of %d; %d tries left; resuming in %d seconds' % (self.i + 1, len(self.payloads), total_tries - tries, retry_wait))
-    
+
   def result (self, success):
     return None
-    
+
 def run_rasdial (args):
   log.debug('running rasdial ' + args)
   output = os.popen('rasdial ' + args).read()
@@ -864,7 +866,7 @@ def run_rasdial (args):
   log.debug('rasdial output: %s' % output)
   if output.find('Command completed successfully') == -1:
     log.warning('enabling/disabling network may have failed: ' + output)
-    
+
 def enable_network ():
   run_rasdial('Internet /phone:*99***1#')
   time.sleep(10)
@@ -874,20 +876,20 @@ def disable_network ():
 
 def transport_payloads (payloads):
   """send all payloads, start to finish"""
-  
+
   if not config.always_on_connection:
     enable_network()
-  
+
   retry_task(SendAllTask(payloads), config.send_retries)
-  
+
   if not config.always_on_connection:
     disable_network()
-  
+
 def send_data ():
   """send data to rapidsms"""
   data_stream = aggregate_submit_data()
   chunks = list(chunk_submissions(data_stream))
-  
+
   payloads = [Payload(chunk=chunk, id='%d/%d' % (i + 1, len(chunks))) for (i, chunk) in enumerate(chunks)]
   if len(payloads) == 0: #nb: should rarely, if ever, happen; there will always be a few new log messages
     payloads = [Payload()]
@@ -895,9 +897,9 @@ def send_data ():
   else:
     log.info('%d payloads to send (%d bytes%s)' % (len(payloads), sum(len(p.json) for p in payloads),
                   ', compressed' if config.send_compressed else ''))
-  
+
   transport_payloads(payloads)
-  
+
 def init ():
   """ENTRY POINT: initialze the system"""
   try:
@@ -905,7 +907,7 @@ def init ():
   except:
     log.exception('error initializing app')
     raise
-  
+
 def main ():
   """ENTRY POINT: run the extract/sync task"""
   log.info('beginning extract/sync task')
@@ -927,7 +929,7 @@ def main ():
     log.exception('caught exception in config.teardown; continuing anyways')
   log.info('extract/sync task complete')
 
-  
+
 class SingletonTask:
   """wrapper class to ensure that a function/task has only one executing instance at any given time;
   accomplishes this in a somewhat ghetto manner by polling a shared lockfile"""
@@ -937,38 +939,38 @@ class SingletonTask:
     self.poll_freq = poll_freq
     self.max_runtime = max_runtime
     self.name = '%s:%04x' % (name, random.randint(0, 2**16 - 1))
-    
+
   def start (self):
     if self.acquire_lock():
       thr = Thread(target=self.task)
       runtime = 0
-      
+
       thr.start()
       while thr.is_alive():
         if self.max_runtime != None and runtime > self.max_runtime:
           log.warning(('task [%s] exceeded its max allowed runtime of %ds; runlock is being released; ' +
               'assume task is hung/stalled, but may still be running!') % (self.name, self.max_runtime))
           break
-      
+
         time.sleep(self.poll_freq)
         runtime += self.poll_freq
         self.refresh_lock()
-    
+
       self.clear_lock()
     else:
       log.info('unable to acquire lock for task [%s]; not running...' % self.name)
-    
+
   def acquire_lock (self):
     lock_stat = self.read_lockfile()
     if lock_stat:
       have_lock = self.monitor_lockfile(lock_stat)
     else:
       have_lock = True
-      
+
     if have_lock:
       self.refresh_lock()
     return have_lock
-    
+
   def read_lockfile (self):
     try:
       if os.path.exists(self.lockfile):
@@ -982,7 +984,7 @@ class SingletonTask:
     except:
       log.exception('could not read lockfile [%s - %s]; proceeding as if unlocked...' % (self.name, self.lockfile))
       return None
-  
+
   def refresh_lock (self):
     try:
       f = open(self.lockfile, 'w')
@@ -999,17 +1001,17 @@ class SingletonTask:
         return False
     log.info('existing lockfile [%s - %s] appears to be from a defunct process; proceeding as if unlocked...' % (self.name, self.lockfile))
     return True
-  
+
   def clear_lock (self):
     try:
       os.remove(self.lockfile)
     except:
       log.exception('could not clear lockfile [%s - %s]; task is now defunct' % (self.name, self.lockfile))
-    
+
 def fdelta (delta):
   """convert a timedelta into seconds"""
   return 86400*delta.days + delta.seconds + 1.0e-6*delta.microseconds
-    
+
 def fire_task ():
   """launch the extract/sync task"""
   try:
@@ -1018,7 +1020,7 @@ def fire_task ():
     log.info('task completed')
   except:
     log.exception('top-level exception in firing task!')
-    
+
 def is_hit (sched_time, time_a, time_b):
   """return true if the sched_time falls within the bracket times time_a and time_b"""
   if time_a < time_b:
@@ -1051,10 +1053,10 @@ def daemon_loop (times, last_ping):
         time_a = inst.time()
         time_b = new_inst.time()
         sched_hit = any(is_hit(sched_time, time_a, time_b) for sched_time in times)
- 
+
         if sched_hit:
-          Thread(target=fire_task).start()    
-    
+          Thread(target=fire_task).start()
+
       inst = new_inst
     except:
       log.exception('unhandled exception in core daemon loop!')
@@ -1062,7 +1064,7 @@ def daemon_loop (times, last_ping):
       if fault_count == max_faults:
         log.info('too many faults (%d) in daemon loop; shutting down as a precaution...' % max_faults)
         return
-  
+
 def parse_sched_params ():
   """parse the scheduling times config parameter"""
   times =[]
@@ -1075,29 +1077,29 @@ def parse_sched_params ():
     except:
       log.exception('can\'t parse time parameter [%s]' % tstr)
   return times
-  
+
 def daemon ():
   """ENTRY POINT: background daemon that runs the extract/sync task at scheduled intervals"""
   try:
     log.info('booting daemon... (v%s)' % config.version)
-  
+
     times = parse_sched_params()
     if len(times) == 0:
       log.warning('no scheduled times! nothing to do; exiting...')
       return
     else:
       log.info('scheduled to run at: %s' % ', '.join(t.strftime('%H:%M') for t in sorted(times)))
-  
+
     if config.clinics:
       log.info('filtering by %d clinics: %s' % (len(config.clinics), ', '.join(config.clinics)))
     else:
       log.info('all clinics enabled')
-  
+
     last_ping = SingletonTask(None, config.daemon_lock).read_lockfile()
     SingletonTask(lambda: daemon_loop(times, last_ping), config.daemon_lock, name='daemon').start()
   except:
     log.exception('top-level exception when booting daemon!')
-  
+
 if __name__ == "__main__":
   try:
     daemon()
