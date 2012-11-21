@@ -172,24 +172,21 @@ def bootstrap(log):
     # connect to MySQL
     mysql_db = MySQLdb.connect('localhost', 'mwana', 'mwana-labs', 'eid_malawi')
     mysql_curs = mysql_db.cursor()
-    prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+    prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     prod_curs = prod_db.cursor()
     srccols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
                 'pcr_plate_no', 'pcr_report_date', 'result',
-                'comments', 'status', 'approved', 'action', 'verified', 'care_clinic_no')
+                'comments', 'status', 'approved', 'action', 'care_clinic_no', 'verified')
     mysql_curs.execute('select * from pcr_logbook;')
     destcols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
                 'pcr_plate_no', 'pcr_report_date', 'result',
-                'comments', 'status', 'approved', 'action', 'verified', 'care_clinic_no')
+                'comments', 'status', 'approved', 'action', 'care_clinic_no', 'verified')
     desttypes = [_sql_type(log, col) for col in mysql_curs.description]
 
     sample_id_index = destcols.index('serial_no')
-    date_column_indexes = [destcols.index(col)
-                           for col in ['pcr_report_date']]
+    date_column_indexes = [destcols.index(col) for col in ['pcr_report_date']]
 
-    integer_column_indexes = [destcols.index(col)
-                              for col in ['status', 'approved',
-                                          'action', 'verified']]
+    integer_column_indexes = [destcols.index(col) for col in ['status', 'approved', 'action', 'verified']]
     # set date columns
     for idx in date_column_indexes:
         desttypes[idx] = 'date'
