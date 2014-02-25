@@ -20,7 +20,7 @@ identity = lambda x: x
 
 db_fields = ['sample_id', 'imported_on', 'resolved_on', 'patient_id', 'facility_code', 'collected_on',
              'received_on', 'processed_on', 'result', 'result_detail', 'birthdate', 'child_age',
-             'child_age_unit', 'health_worker', 'health_worker_title', 'sync_status', 'verified', 'care_clinic_no']
+             'child_age_unit', 'health_worker', 'health_worker_title', 'sync_status', 'verified', 'care_clinic_no', 'sex']
 
 def init_logging ():
   """initialize the logging framework"""
@@ -47,7 +47,7 @@ def dbconn (db):
 #    return pyodbc.connect('DRIVER={Easysoft ODBC-ACCESS};MDBFILE=%s' %
     #    config.prod_db_path)
   elif db == 'lims':
-    return MySQLdb.connect('localhost', 'mwana', 'mwana-labs', 'eid_malawi');
+    return MySQLdb.connect(host='127.0.0.1', port=3306, user='mwana', passwd='mwana-labs', db='eid_malawi');
   elif db == 'staging':
     return sqlite3.connect(config.staging_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
   else:
@@ -91,6 +91,7 @@ def create_staging_db ():
       health_worker_title varchar(50),    --title of clinic worker
       verified int,
       care_clinic_no varchar(50),
+      sex varchar(14),                    --gender of the child
       sync_status varchar(10) not null default 'new'  --status of record's sync with rapidsms server: 'new', 'updated',
                                                       --'synced', 'historical'
   )
@@ -214,7 +215,7 @@ def read_sample_record (sample_id, conn=None):
   sample['birthdate'] = tx(sample_row[9], config.date_parse)
   sample['child_age'] = sample_row[10]
   sample['child_age_unit'] = sample_row[11]
-  sample['sex'] = tx(sample_row[12], lambda x: {1: 'm', 2: 'f'}[x])
+  sample['sex'] = sample_row[12]
   sample['mother_age'] = sample_row[13]
   sample['health_worker'] = sample_row[14]
   sample['health_worker_title'] = sample_row[15]

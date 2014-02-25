@@ -6,7 +6,8 @@ import datetime
 
 version = '1.3.0b'
 
-sched = ['0930', '1310', '1400', '1630', '1730']  # scheduling parameters for sync task
+# scheduling parameters for sync task
+sched = ['0930', '1310', '1400', '1630', '1730']
 
 # List of clinic ids to send data for; if present, ONLY data for these clinics
 # will accumulate in the staging db and, subsequently, be sent to the MOH
@@ -45,17 +46,17 @@ lims_db_date_column = 'datetested'
 prod_db_columns = [
   'patient_id',
   'fac_id',
-  'NULL',
-  'NULL',
+  'collected_on',
+  'received_on',
   'pcr_report_date',
   'result',
   'NULL',
   'comments',
   'NULL',
+  'birthdate',
+  'child_age',
   'NULL',
-  'NULL',
-  'NULL',
-  'NULL',
+  'sex',
   'NULL',
   'NULL',
   'NULL',
@@ -170,23 +171,29 @@ def bootstrap(log):
     global prod_db_path
     _, prod_db_path = tempfile.mkstemp()
     # connect to MySQL
-    mysql_db = MySQLdb.connect('localhost', 'mwana', 'mwana-labs', 'eid_malawi')
+    mysql_db = MySQLdb.connect(host='127.0.0.1', port=3306, user='mwana', password='mwana-labs', db='eid_malawi')
     mysql_curs = mysql_db.cursor()
     prod_db = sqlite3.connect(prod_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
     prod_curs = prod_db.cursor()
-    srccols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
-                'pcr_plate_no', 'pcr_report_date', 'result',
-                'comments', 'status', 'approved', 'action', 'care_clinic_no', 'verified')
+    # srccols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
+                # 'pcr_plate_no', 'pcr_report_date', 'result',
+                # 'comments', 'status', 'approved', 'action', 'care_clinic_no', 'verified')
     mysql_curs.execute('select * from pcr_logbook;')
     destcols = ('serial_no', 'fac_id', 'patient_id', 'qech_lab_id',
                 'pcr_plate_no', 'pcr_report_date', 'result',
-                'comments', 'status', 'approved', 'action', 'care_clinic_no', 'verified')
+                'comments', 'status', 'approved', 'action', 'care_clinic_no',
+                'collected_on', 'received_on', 'birthdate', 'child_age', 'sex',
+                'verified')
     desttypes = [_sql_type(log, col) for col in mysql_curs.description]
 
     sample_id_index = destcols.index('serial_no')
     date_column_indexes = [destcols.index(col) for col in ['pcr_report_date']]
 
     integer_column_indexes = [destcols.index(col) for col in ['status', 'approved', 'action', 'verified']]
+    
+    float_column_indexes = [destcols.index(col)
+                            for col in ['child_age']]
+
     # set date columns
     for idx in date_column_indexes:
         desttypes[idx] = 'date'
@@ -194,6 +201,10 @@ def bootstrap(log):
     # set integer columns
     for idx in integer_column_indexes:
         desttypes[idx] = 'integer'
+
+    # set float columns
+    for idx in float_column_indexes:
+        desttypes[idx] = 'float'
 
     columns = [' '.join([nm, tp]) for nm, tp in zip(destcols, desttypes)]
     create_sql = 'CREATE TABLE "%s" (%s);' % (prod_db_table, ','.join(columns))
@@ -205,7 +216,8 @@ def bootstrap(log):
     while row:
         row = [isinstance(v, basestring) and v.strip() or v for v in row]
         for idx in integer_column_indexes:
-            row[idx] = int(row[idx])
+            if row[idx] != '':
+                row[idx] = int(row[idx])
 
         row[sample_id_index] = get_unique_id(log, row[sample_id_index])
         insert_sql = 'INSERT INTO "%s" VALUES(%s);' % (prod_db_table, values)
