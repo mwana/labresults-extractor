@@ -1,6 +1,7 @@
 local_config.py
 *.log
 *.db3
+*.pyc
 /.idea/.name
 /.idea/encodings.xml
 /.idea/labresults-extractor.iml

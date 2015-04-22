@@ -19,8 +19,8 @@ import MySQLdb
 identity = lambda x: x
 
 db_fields = ['sample_id', 'imported_on', 'resolved_on', 'patient_id', 'facility_code', 'collected_on',
-             'received_on', 'processed_on', 'result', 'result_detail', 'birthdate', 'child_age',
-             'child_age_unit', 'health_worker', 'health_worker_title', 'sync_status', 'verified', 'care_clinic_no', 'sex']
+             'received_on', 'processed_on', 'result', 'result_detail', 'birthdate',
+             'child_age_unit', 'health_worker', 'health_worker_title', 'sync_status', 'verified', 'care_clinic_no', 'phone', 'sex']
 
 def init_logging ():
   """initialize the logging framework"""
@@ -42,14 +42,11 @@ def days_ago (n):
 def dbconn (db):
   """return a database connected to the production (lab access) or staging (UNICEF sqlite) databases"""
   if db == 'prod':
-    return config.prod_db_provider.connect(config.prod_db_path, **config.prod_db_opts)
-# to use the Easysoft Access ODBC driver from linux:
-#    return pyodbc.connect('DRIVER={Easysoft ODBC-ACCESS};MDBFILE=%s' %
-    #    config.prod_db_path)
+    return MySQLdb.connect(host='127.0.0.1', port=3306, user='rapidsms', passwd='rapidsms-results', db='rapidsms_results');
   elif db == 'lims':
-    return MySQLdb.connect(host='127.0.0.1', port=3306, user='mwana', passwd='mwana-labs', db='eid_malawi');
+    return MySQLdb.connect(host='127.0.0.1', port=3306, user='mwana', passwd='mwana-labs', db='eid_partnersinhope');
   elif db == 'staging':
-    return sqlite3.connect(config.staging_db_path, detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
+    return MySQLdb.connect(host='127.0.0.1', port=3306, user='rapidsms', passwd='rapidsms-results', db='rapidsms_results');
   else:
     raise ValueError('do not recognize database [%s]' % db)
 
@@ -74,26 +71,26 @@ def create_staging_db ():
 
   curs.execute('''
     create table samples (
-      sample_id varchar(10) primary key,  --id assigned to sample in lab
-      imported_on date,                   --when sample record was discovered by extract script
-      resolved_on date,                   --when result was noticed by extract script
-      patient_id varchar(100),            --patient 'identifier' from requisition form
+      sample_id varchar(10) primary key,  -- id assigned to sample in lab
+      imported_on date,                   -- when sample record was discovered by extract script
+      resolved_on date,                   -- when result was noticed by extract script
+      patient_id varchar(100),            -- patient 'identifier' from requisition form
       facility_code varchar(10),
-      collected_on date,                  --date sample was collected at clinic
-      received_on date,                   --date sample was received at/entered into lab system
-      processed_on date,                  --date sample was tested in lab
-      result varchar(20),                 --result: 'positive', 'negative', 'rejected', 'indeterminate', 'inconsistent'
-      result_detail varchar(100),         --e.g., reason rejected
+      collected_on date,                  -- date sample was collected at clinic
+      received_on date,                   -- date sample was received at/entered into lab system
+      processed_on date,                  -- date sample was tested in lab
+      result varchar(20),                 -- result: 'positive', 'negative', 'rejected', 'indeterminate', 'inconsistent'
+      result_detail varchar(100),         -- e.g., reason rejected
       birthdate date,
-      child_age int,                      --may be inconsistent with birthdate
       child_age_unit varchar(20),
-      health_worker varchar(50),          --name of clinic worker collecting sample
-      health_worker_title varchar(50),    --title of clinic worker
+      health_worker varchar(50),          -- name of clinic worker collecting sample
+      health_worker_title varchar(50),    -- title of clinic worker
       verified int,
       care_clinic_no varchar(50),
-      sex varchar(14),                    --gender of the child
-      sync_status varchar(10) not null default 'new'  --status of record's sync with rapidsms server: 'new', 'updated',
-                                                      --'synced', 'historical'
+      phone varchar(15),                  -- phone number of the mother/caregiver
+      sex varchar(14),                    -- gender of the child
+      sync_status varchar(10) not null default 'new'  -- status of record's sync with rapidsms server: 'new', 'updated',
+                                                      -- 'synced', 'historical'
   )
   ''')
 
@@ -129,7 +126,7 @@ def archive_old_samples (lookback):
   curs = conn.cursor()
   for id in archive_ids:
     id = config.get_unique_id(log, id)
-    curs.execute("insert into samples (sample_id, sync_status) values (?, 'historical')", [id])
+    curs.execute("insert into samples (sample_id, sync_status) values (%s, 'historical')", [id])
   conn.commit()
   curs.close()
   conn.close()
@@ -182,13 +179,12 @@ def query_sample (sample_id, conn=None):
   sql = '''
 select %s
 from %s
-where %s = ?
-''' % (', '.join(config.prod_db_columns), config.prod_db_table,
-       config.prod_db_id_column)
+where %s = %s''' % (', '.join(config.prod_db_columns), config.prod_db_table,
+                    config.prod_db_id_column, sample_id)
   facilities = facilities_where_clause()
   if facilities:
     sql += ' AND %s' % facilities
-  curs.execute(sql, (sample_id,))
+  curs.execute(sql)
 
   results = curs.fetchall()
   curs.close()
@@ -204,7 +200,7 @@ where %s = ?
 def read_sample_record (sample_id, conn=None):
   """read and process/clean up a single sample row for the lab db"""
   sample_row = query_sample(sample_id, conn)
-  #log.debug('sample_row: %s' % str(sample_row))
+  # log.debug('sample_row: %s' % str(sample_row))
   sample = {}
   sample['sample_id'] = sample_id
   sample['patient_id'] = sample_row[0]
@@ -213,7 +209,7 @@ def read_sample_record (sample_id, conn=None):
   sample['received_on'] = tx(sample_row[3], config.date_parse)
   sample['processed_on'] = tx(sample_row[4], config.date_parse)
   sample['birthdate'] = tx(sample_row[9], config.date_parse)
-  sample['child_age'] = sample_row[10]
+  # sample['child_age'] = sample_row[10]
   sample['child_age_unit'] = sample_row[11]
   sample['sex'] = sample_row[12]
   sample['mother_age'] = sample_row[13]
@@ -221,6 +217,7 @@ def read_sample_record (sample_id, conn=None):
   sample['health_worker_title'] = sample_row[15]
   sample['verified'] = sample_row[16]
   sample['care_clinic_no'] = sample_row[17]
+  sample['phone'] = sample_row[18]
 
   if sample_row[5] is not None and sample_row[5].lower() not in config.result_map:
     log.warn('No result mapping found for "%s"' % sample_row[5])
@@ -305,8 +302,8 @@ def get_update_ids (deleted_ids):
   def sample_window(curs, result_clause, date_field, window):
     return pkey_fetch(curs, '''
       select sample_id from samples
-      where result %s and %s >= ? and sync_status != 'historical'
-    ''' % (result_clause, date_field), [days_ago(window)]) - deleted_ids
+      where result %s and %s >= %s and sync_status != 'historical'
+    ''' % (result_clause, date_field, days_ago(window)), []) - deleted_ids
 
   #ids for records where result reported; still listening for any changes to record
   update_window_ids = sample_window(curs, "in ('positive', 'negative', 'rejected')", 'resolved_on', config.result_window)
@@ -445,7 +442,7 @@ def add_record (record, curs):
   """insert a new sample record into staging"""
   curs.execute('''
     insert into samples (%s) values (%s)
-  ''' % (', '.join(db_fields), ', '.join(['?' for f in db_fields])), [record[f] for f in db_fields])
+  ''' % (', '.join(db_fields), ', '.join(['%s' for f in db_fields])), [record[f] for f in db_fields])
 
 def update_record (record, curs):
   """update a record in staging; delete then re-add, because the sql is easier"""
@@ -453,7 +450,7 @@ def update_record (record, curs):
   add_record(record, curs)
 
 def delete_record (sample_id, curs):
-  curs.execute('delete from samples where sample_id = ?', [sample_id])
+  curs.execute('delete from samples where sample_id = %s', [sample_id])
 
 
 def parse_log_line (logln, lnum=-1):
@@ -786,7 +783,7 @@ class UpdateSyncFlagTask:
         conn = dbconn('staging')
         curs = conn.cursor()
         for id in self.payload.record_ids:
-          curs.execute("update samples set sync_status = 'synced' where sample_id = ?", [id])
+          curs.execute("update samples set sync_status = 'synced' where sample_id = %s", [id])
         conn.commit()
         return True
       except:
@@ -1104,8 +1101,8 @@ def daemon ():
 if __name__ == "__main__":
   try:
     daemon()
-  #  init()
-  #  main()
+    # init()
+    # main()
   except:
     log.exception("uncaught exception in __main__")
     raise
