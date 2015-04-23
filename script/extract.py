@@ -87,7 +87,7 @@ def create_staging_db ():
       health_worker_title varchar(50),    -- title of clinic worker
       verified int,
       care_clinic_no varchar(50),
-      phone varchar(15),                  -- phone number of the mother/caregiver
+      phone varchar(50),                  -- phone number of the mother/caregiver
       sex varchar(14),                    -- gender of the child
       sync_status varchar(10) not null default 'new'  -- status of record's sync with rapidsms server: 'new', 'updated',
                                                       -- 'synced', 'historical'
