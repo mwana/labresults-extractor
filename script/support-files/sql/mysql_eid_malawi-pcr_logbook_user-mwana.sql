@@ -15,7 +15,8 @@ CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` SQL SECURITY DEFINER VIEW 
  `patients`.`DOB` AS `birthdate`,
  `patients`.`gender` AS `sex`,
 `mothers`.`phoneno` AS `phone`,
-if(((`samples`.`action` = 2) and `samples`.`approved`),1,0) AS `verified`
+if(((`samples`.`action` = 2) and `samples`.`approved`),1,0) AS `verified`,
+`samples`.`labtestedin` AS `labtestedin`
 from (((((`results` join `samples`) join `samplestatus`) join `facilitys`) join `patients`) join `mothers`)
 where ((`results`.`ID` = `samples`.`result`)
 and (`samplestatus`.`ID` = `samples`.`status`)
